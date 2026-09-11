@@ -44,3 +44,7 @@ bin/
 # Temporary files
 tmp/
 temp/
+
+#Big Data VOL
+raw_data/*
+
