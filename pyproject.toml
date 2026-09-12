@@ -5,7 +5,16 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "cdsapi>=0.7.7",
+    "dateutils>=0.6.12",
+    "duckdb>=1.5.5",
     "ipykernel>=7.3.0",
+    "matplotlib>=3.11.2",
+    "nbformat>=5.11.1",
+    "pandas>=3.0.5",
     "pip>=26.2.1",
+    "plotly>=7.0.0",
+    "pyarrow>=25.0.1",
     "requests>=2.34.2",
+    "seaborn>=0.13.2",
 ]
