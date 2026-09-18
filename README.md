@@ -1,66 +1,64 @@
 # Egide
 
-Egide is an open-source project scaffold.
+Projeto para coleta, processamento e visualizacao de dados energeticos e
+meteorologicos.
 
-## Status
+## Estrutura
 
-Initial project structure. Replace this section with the project's purpose, goals, and setup steps as the implementation takes shape.
+```text
+egide/
+|-- data/
+|   |-- raw/             # downloads locais, ignorados pelo Git
+|   `-- processed/       # dados tratados em Parquet
+|-- docs/hackathon/      # documentos e material de referencia
+|-- notebooks/           # exploracao, processamento e visualizacao
+|   `-- sandbox/         # experimentos temporarios
+|-- scripts/             # rotinas executaveis de coleta
+|-- main.py
+|-- pyproject.toml
+`-- uv.lock
+```
 
-## Getting Started
+Execute os comandos a partir da raiz do repositorio para que os caminhos de
+dados sejam resolvidos corretamente.
 
-Clone the repository:
+## Instalacao
 
 ```sh
 git clone https://github.com/YOUR-USERNAME/egide.git
 cd egide
+uv sync
 ```
 
-Add project-specific setup instructions here.
+## Download ERA5
 
-## ERA5 Download
+O script `scripts/download_era5.py` baixa medias mensais do ERA5-Land pela API
+do Copernicus CDS. Antes de executa-lo, crie uma conta no CDS, aceite os termos
+do conjunto de dados e configure as credenciais em `~/.cdsapirc`.
 
-The script at `hackathon_content/ERA5/download_era5.py` downloads ERA5-Land
-monthly means with the Copernicus CDS API. Before running it, create a CDS
-account, accept the dataset terms, and configure your credentials in
-`~/.cdsapirc`.
-
-Edit the lists at the top of the script:
-
-```python
-VARIABLES = ["2m_temperature", "total_precipitation"]
-YEARS = ["2025"]
-MONTHS = ["01", "02", "03"]
-AREA = [6, -74, -34, -34]  # north, west, south, east
-```
-
-Then run:
+As variaveis, o periodo e a area geografica podem ser alterados no inicio do
+script. Para executar:
 
 ```sh
-uv run python hackathon_content/ERA5/download_era5.py
+uv run python scripts/download_era5.py
 ```
 
-## ONS Load Download
+O arquivo resultante e salvo em `data/raw/era5/` e nao e versionado.
 
-The script `download_ons_carga.py` downloads verified and scheduled load data
-from the ONS API. Its defaults request the `NE` subsystem from `01/01/2023`
-through the current date in Brasilia time.
+## Dados ONS
 
-Edit `ENDPOINTS`, `LOAD_AREA`, `START_DATE_BR`, or `END_DATE_BR` at the top of
-the script, then run:
+O notebook `notebooks/download_carga.ipynb` coleta dados de carga verificada e
+programada da API do ONS. Os resultados sao gravados em
+`data/processed/carga/`.
 
-```sh
-uv run python download_ons_carga.py
-```
+Os notebooks `notebooks/visual_load.ipynb` e `notebooks/visual_coff.ipynb`
+concentram as analises e visualizacoes dos dados processados.
 
-The results are saved as `processed_data/ONS/cargaverificada_NE.parquet` and
-`processed_data/ONS/cargaprogramada_NE.parquet`. The original UTC timestamp is
-kept in `din_referenciautc`, with its Brasilia-time equivalent in
-`din_referenciabr`.
+## Documentacao
 
-## Access
+Os cadernos do desafio, instrucoes de acesso ao ERA5 e o notebook de referencia
+estao em `docs/hackathon/`.
 
-This repository is public for viewing. Issue and request posting is intended for selected collaborators only.
+## Licenca
 
-## License
-
-This project is licensed under the [MIT License](LICENSE).
+Este projeto e distribuido sob a [licenca MIT](LICENSE).

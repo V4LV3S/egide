@@ -2,7 +2,7 @@
 
 Edit the lists and values below, then run:
 
-    uv run python hackathon_content/ERA5/download_era5.py
+    uv run python scripts/download_era5.py
 """
 
 from pathlib import Path
@@ -40,7 +40,7 @@ MONTHS = [
 AREA = [6, -74, -34, -34]
 
 # Choose the output file here.
-OUTPUT_FILE = Path("hackathon_content/ERA5/era5_land_2025.nc")
+OUTPUT_FILE = Path("data/raw/era5/era5_land_2025.nc")
 
 
 dataset = "reanalysis-era5-land-monthly-means"
