@@ -1,10 +1,5 @@
 # TODO
 
-## Dados
-
-- [ ] Variáveis meteorológicas (Almeida)
-- [ ] Outros dados (Almeida)
-
 ## Previsão Renovável
 
 **Responsáveis:** Almeida e Daniel
@@ -29,11 +24,19 @@
 
 **Saída:** 24h pelo modelo MLy + 48h MLy com ajuste de erros
 
-
-## Regularizar os dados
-
+# Dados
 **Responsáveis:** Almeida 
 
+- [x] Variáveis meteorológicas (Almeida)
+
+
+**ERA5** 
+1. Criar a variável de intensidade do vento vent100 = raiz(v²+u²)
+2. Montar os mesmos pontos de grade do ERA5-land
+
+
+
+## Regularizar os dados
 
 | Dado                    | Tratamento que faz mais sentido                             |
 | ----------------------- | ----------------------------------------------------------- |
