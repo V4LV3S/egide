@@ -13,6 +13,9 @@ egide/
 |-- docs/hackathon/      # documentos e material de referencia
 |-- notebooks/           # exploracao, processamento e visualizacao
 |   `-- sandbox/         # experimentos temporarios
+|-- ml/                  # notebooks, scripts e artefatos de Machine Learning
+|   |-- notebooks/       # Ridge, MLP, CNN+LSTM e XGBoost
+|   `-- scripts/         # preparacao, treino e persistencia reutilizaveis
 |-- scripts/             # rotinas executaveis de coleta
 |-- main.py
 |-- pyproject.toml
@@ -53,6 +56,13 @@ programada da API do ONS. Os resultados sao gravados em
 
 Os notebooks `notebooks/visual_load.ipynb` e `notebooks/visual_coff.ipynb`
 concentram as analises e visualizacoes dos dados processados.
+
+## Machine Learning
+
+Os notebooks em `ml/notebooks/` oferecem esqueletos para regressao temporal,
+regressao + classificacao e classificacao com Ridge/Logistic Regression, MLP,
+CNN+LSTM e XGBoost. Consulte [ml/README.md](ml/README.md) para configuracao,
+paralelismo manual e uso com Parquet ou CSV.
 
 ## Documentacao
 
