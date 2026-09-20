@@ -1,12 +1,12 @@
-from glob import glob
+"""Separa os GRIBs mensais do ERA5-Land em um arquivo por variável."""
+
 from pathlib import Path
 
 from eccodes import codes_get, codes_grib_new_from_file, codes_release, codes_write
 
-basepath = Path(__file__).resolve().parents[1] 
-era5land = glob(f"{basepath}/data/raw/era5-land/*.grib", recursive=True)
-
-era5land = sorted(era5land)
+ROOT = Path(__file__).resolve().parents[1]
+INPUT_DIRECTORY = ROOT / "data" / "raw" / "era5-land"
+OUTPUT_DIRECTORY = ROOT / "data" / "processed" / "meteoro"
 
 
 def split_grib_by_variable(input_file: Path, output_dir: Path, date: str) -> None:
@@ -31,11 +31,14 @@ def split_grib_by_variable(input_file: Path, output_dir: Path, date: str) -> Non
             output_file.close()
 
 
-for file in era5land:
-    file_name = Path(file).stem
-    date = file_name.split("hourly_")[-1]
-    split_grib_by_variable(
-        Path(file), basepath / "data/processed/meteoro", date
-    )
+def main() -> None:
+    for input_file in sorted(INPUT_DIRECTORY.glob("*.grib")):
+        split_grib_by_variable(
+            input_file,
+            OUTPUT_DIRECTORY,
+            input_file.stem.rsplit("hourly_", maxsplit=1)[-1],
+        )
 
 
+if __name__ == "__main__":
+    main()
