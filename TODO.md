@@ -33,6 +33,10 @@
 **ERA5** 
 1. Criar a variável de intensidade do vento vent100 = raiz(v²+u²)
 2. Montar os mesmos pontos de grade do ERA5-land
+3. Alinhar o eixo temporal dos NetCDFs ERA5 e ERA5-Land antes da junção: os
+   arquivos ERA5-Land atuais incluem uma hora adicional em cada borda
+   (`2023-09-30 01:00` a `2026-09-01 00:00`), enquanto ERA5 cobre
+   `2023-10-01 00:00` a `2026-08-31 23:00`.
 
 
 

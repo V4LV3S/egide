@@ -67,7 +67,9 @@ paralelismo manual e uso com Parquet ou CSV.
 ## Documentacao
 
 Os cadernos do desafio, instrucoes de acesso ao ERA5 e o notebook de referencia
-estao em `docs/hackathon/`.
+estao em `docs/hackathon/`. O [estado atual do projeto e o pipeline de
+dados](docs/estado-atual-do-projeto.md) consolidam os dados, transformacoes,
+cobertura e pendencias mapeados no repositorio.
 
 ## Licenca
 
