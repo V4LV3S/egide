@@ -53,5 +53,5 @@ data/raw/*
 data/processed/meteoro/*.grib*
 data/processed/meteoro/*.grib
 
-data/processed/meteoro-total/*.grib
-data/processed/meteoro-coarsened/*.grib
+data/processed/meteoro-total/*.nc
+data/processed/meteoro-coarsened/*.nc
