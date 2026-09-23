@@ -52,6 +52,6 @@ data/raw/*
 # Processed heavy data
 data/processed/meteoro/*.grib*
 data/processed/meteoro/*.grib
-
-data/processed/meteoro-total/*.nc
+data/processed/meteoro-total/*
 data/processed/meteoro-coarsened/*.nc
+data/processed/meteoro-recortado/*

@@ -54,3 +54,151 @@
 | **u10/v10/u100/v100**   | StandardScaler individual                                   |
 | **Carga**               | Z-score ou Instance Normalization                           |
 | **Hora/dia/mês**        | Melhor usar codificação cíclica que simplesmente normalizar |
+
+
+# TODO — Pipeline Meteorológico
+
+## 1. Preparar dados ERA5-Land
+
+* [x] Carregar variáveis:
+
+  * Temperatura
+  * Pressão
+  * `u100`
+  * `v100`
+  * Precipitação
+  * `ssr`
+* [x] Calcular velocidade do vento:
+
+  * `wind_speed = sqrt(u100² + v100²)`
+* [x] Remover `u100` e `v100` após o cálculo
+
+## 2. Reduzir resolução espacial
+
+* [x] Aplicar coarsening:
+
+  * `0.1° → 0.3°`
+  * média espacial em blocos `3 x 3`
+
+## 3. Recortar por estado
+
+* [x] Carregar shapes dos estados
+* [x] Selecionar células/pontos `0.5°` dentro de cada estado
+* [x] Manter cada célula espacial separada
+* [x] Não calcular média única do estado
+
+## 4. Criar features meteorológicas
+
+Para cada célula espacial:
+
+* [ ] Temperatura
+* [ ] Pressão
+* [ ] Velocidade do vento
+* [ ] Precipitação
+* [ ] Radiação `ssr`
+
+Formato esperado:
+
+```text
+T_1 ... T_n
+P_1 ... P_n
+V_1 ... V_n
+Prec_1 ... Prec_n
+SSR_1 ... SSR_n
+```
+
+## 5. Pré-processamento
+
+* [ ] Aplicar `log1p()` na precipitação
+* [ ] Manter demais variáveis sem transformação adicional
+
+## 6. Separar dados
+
+* [ ] Dividir temporalmente:
+
+  * Train
+  * Validation
+  * Test
+* [ ] Não usar shuffle
+
+## 7. Padronização
+
+* [ ] Ajustar `StandardScaler` apenas no Train
+* [ ] Transformar Train, Validation e Test com o mesmo scaler
+
+## 8. PCA
+
+* [ ] Ajustar PCA apenas no Train
+* [ ] Usar:
+
+  * `PCA(n_components=0.95)`
+* [ ] Transformar Train, Validation e Test
+* [ ] Salvar número de componentes encontrados
+
+## 9. Variáveis temporais
+
+Adicionar após a PCA:
+
+* [ ] `sin(hora)`
+* [ ] `cos(hora)`
+* [ ] `sin(dia_do_ano)`
+* [ ] `cos(dia_do_ano)`
+
+## 10. Preparar entrada da ABiLSTM
+
+* [ ] Criar janelas de 24 horas
+* [ ] Formato de entrada:
+
+```text
+(samples, 24, features)
+```
+
+## 11. Preparar saída
+
+Para previsão das próximas 24 horas:
+
+```text
+Y = [G(t+1), G(t+2), ..., G(t+24)]
+```
+
+* [ ] Formato:
+
+```text
+(samples, 24)
+```
+
+## 12. Treinar modelo
+
+* [ ] Treinar ABiLSTM
+* [ ] Avaliar em Validation
+* [ ] Testar no conjunto Test
+
+## Pipeline resumido
+
+```text
+ERA5-Land 0.1°
+      ↓
+Velocidade do vento
+      ↓
+Coarsening 0.5°
+      ↓
+Recorte por estado
+      ↓
+Features por célula
+      ↓
+log1p(precipitação)
+      ↓
+Train / Val / Test
+      ↓
+StandardScaler
+      ↓
+PCA 95%
+      ↓
+Features temporais
+      ↓
+Janelas de 24h
+      ↓
+ABiLSTM
+      ↓
+Previsão t+1 ... t+24
+```
