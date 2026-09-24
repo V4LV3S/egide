@@ -44,3 +44,33 @@ Somente `100u`, `100v` e `tcc` recebem interpolação para a grade ERA5-Land.
 As variáveis do ERA5-Land já usam essa grade e são consolidadas sem interpolação.
 Para `2t`, `sp`, `tp`, `ssr` e `str`, as dimensões `time` e `step` do GRIB são
 unificadas em uma única dimensão `time`, com os datetimes de `valid_time`.
+
+Ao executar `scripts/recortar_meteoro_netcdf.py`, as transformações físicas
+ocorrem antes do recorte: `tp` deixa de ser acumulado e passa de m para mm por
+intervalo; `ssr`/`str` passam de acumulados em J m-2 para fluxos médios por
+intervalo em W m-2. Internamente, o script usa um eixo auxiliar `time - 1
+minuto`: assim 00:00 fecha o ciclo anterior e 01:00 inicia o novo ciclo
+acumulado. Os arquivos regionais recém-gravados já contêm essas unidades.
+`tp` e `ssr` são limitados a zero caso apareça uma pequena diferença negativa
+numérica; `str` mantém seu sinal por ser radiação térmica líquida.
+
+## Radiação por intervalo
+
+`ssr` e `str` são acumulados desde 00:00 UTC em cada ciclo diário do
+ERA5-Land; por isso, não devem ser usados diretamente como valores horários.
+O script `scripts/transformar_radiacao_era5.py` processa todos os `ssr.nc` e
+`str.nc` disponíveis em `data/processed/meteoro-recortado/` e cria cópias em
+`data/processed/meteoro-recortado-intervalo/`, mantendo a mesma estrutura de
+regiões e preservando os arquivos originais. Por padrão, a saída é o fluxo
+médio de cada intervalo em `W m-2`; defina
+`CONVERT_TO_WATTS_PER_SQUARE_METRE = False` no código para manter energia por
+intervalo em `J m-2`.
+
+## Precipitação em milímetros
+
+O script `scripts/transformar_precipitacao_era5.py` converte todos os `tp.nc`
+acumulados de `data/processed/meteoro-recortado/` para milímetros por
+intervalo e grava as cópias em `data/processed/meteoro-recortado-mm/`, sem
+alterar os originais. Como o recorte já aplica essa conversão, o script
+independente só aceita arquivos ainda em metros e falha se receber uma saída já
+convertida em mm.

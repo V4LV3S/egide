@@ -91,11 +91,11 @@
 
 Para cada célula espacial:
 
-* [ ] Temperatura
-* [ ] Pressão
-* [ ] Velocidade do vento
-* [ ] Precipitação
-* [ ] Radiação `ssr`
+* [X] Temperatura
+* [X] Pressão
+* [X] Velocidade do vento
+* [X] Precipitação
+* [X] Radiação `ssr`
 
 Formato esperado:
 
@@ -109,22 +109,23 @@ SSR_1 ... SSR_n
 
 ## 5. Pré-processamento
 
-* [ ] Aplicar `log1p()` na precipitação
-* [ ] Manter demais variáveis sem transformação adicional
+* [X] Aplicar `log1p()` na precipitação
+* [X] Manter demais variáveis sem transformação adicional
 
 ## 6. Separar dados
 
-* [ ] Dividir temporalmente:
+* [X] Dividir temporalmente:
 
   * Train
   * Validation
   * Test
-* [ ] Não usar shuffle
+* [X] Não usar shuffle
 
 ## 7. Padronização
 
-* [ ] Ajustar `StandardScaler` apenas no Train
-* [ ] Transformar Train, Validation e Test com o mesmo scaler
+* [X] Ajustar `StandardScaler` apenas no Train
+* [X] Transformar Train, Validation e Test com o mesmo scaler
+* [aval] Refazer o `StandardScaler` para os termos do parquet talvez seja necessario
 
 ## 8. PCA
 
@@ -139,10 +140,10 @@ SSR_1 ... SSR_n
 
 Adicionar após a PCA:
 
-* [ ] `sin(hora)`
-* [ ] `cos(hora)`
-* [ ] `sin(dia_do_ano)`
-* [ ] `cos(dia_do_ano)`
+* [X] `sin(hora)`
+* [X] `cos(hora)`
+* [X] `sin(dia_do_ano)`
+* [X] `cos(dia_do_ano)`
 
 ## 10. Preparar entrada da ABiLSTM
 
@@ -192,7 +193,7 @@ Train / Val / Test
       ↓
 StandardScaler
       ↓
-PCA 95%
+PCA 95 - 90%
       ↓
 Features temporais
       ↓
