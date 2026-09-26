@@ -2,223 +2,123 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from ml.scripts.create_pca_features import (
-    apply_log1p_transform,
-    build_ml_feature_matrix,
-    create_data_features,
-    prepare_feature_matrix,
-    process_all_regions,
-    save_date_features_parquet,
+import ml.scripts.create_pca_features as runner
+from ml.scripts.pca_pipeline import (
+    build_pca_dataset,
+    create_temporal_partitions,
+    pca_dataset_to_dataframe,
+    transform_variable,
 )
 
 
 def write_meteorological_file(
-    path,
-    variable_name: str,
-    multiplier: float,
-    first_hour: int = 0,
-    has_missing_value: bool = False,
+    path, variable_name: str, multiplier: float, first_hour: int = 0
 ) -> None:
-    """Cria um NetCDF espacial pequeno para exercitar o fluxo PCA."""
+    """Cria um NetCDF espacial pequeno para exercitar o pipeline PCA."""
     time_index = np.arange(first_hour, 20, dtype=float)
-    values = multiplier * (
-        time_index[:, None, None]
-        + np.array([[[0.0, 1.0], [2.0, 4.0]]])
-    )
-    if has_missing_value:
-        values[1, 0, 0] = np.nan
+    values = multiplier * (time_index[:, None, None] + np.array([[[0.0, 1.0]]]))
     dataset = xr.Dataset(
-        {
-            variable_name: (
-                ("time", "latitude", "longitude"),
-                values,
-            )
-        },
+        {variable_name: (("time", "latitude", "longitude"), values)},
         coords={
             "time": np.datetime64("2024-01-01T00")
             + time_index.astype("timedelta64[h]"),
-            "latitude": [-10.0, -9.0],
+            "latitude": [-10.0],
             "longitude": [-40.0, -39.0],
         },
     )
     dataset.to_netcdf(path)
 
 
-def test_process_all_regions_combines_pca_variables_by_region(tmp_path) -> None:
+def test_temporal_partitions_are_chronological_and_disjoint() -> None:
+    partitions = create_temporal_partitions(20, 0.70, 0.15)
+
+    assert partitions.train == slice(0, 14)
+    assert partitions.validation == slice(14, 17)
+    assert partitions.test == slice(17, 20)
+
+
+def test_pca_fits_preprocessing_only_with_training_data(tmp_path) -> None:
+    time = pd.date_range("2024-01-01", periods=10, freq="h")
+    values = np.arange(10.0)[:, None]
+    data_array = xr.DataArray(
+        values,
+        dims=("time", "latitude"),
+        coords={"time": time, "latitude": [-10.0]},
+        name="t2m",
+    )
+    partitions = create_temporal_partitions(10, 0.60, 0.20)
+
+    result = transform_variable(
+        data_array,
+        tmp_path / "t2m.nc",
+        partitions,
+        1,
+        apply_log1p=False,
+    )
+
+    # A PCA ajustada apenas no treino produz componentes centradas nesse bloco.
+    np.testing.assert_allclose(result.values[partitions.train].mean(), 0.0, atol=1e-12)
+    assert not np.isclose(result.values[partitions.validation].mean(), 0.0)
+    assert result.attrs["pca_fit_scope"] == "train_only"
+
+
+def test_build_dataset_assigns_split_and_aligns_sources(tmp_path) -> None:
+    region = tmp_path / "BA_SE"
+    region.mkdir()
+    write_meteorological_file(region / "2t.nc", "t2m", 1.0)
+    write_meteorological_file(region / "sp.nc", "sp", 2.0, first_hour=1)
+
+    result = build_pca_dataset(
+        region,
+        {"t2m": 1, "sp": 1},
+        train_fraction=0.70,
+        validation_fraction=0.15,
+    )
+
+    assert result.sizes["time"] == 19
+    assert result.split.values.tolist() == ["train"] * 13 + ["validation"] * 3 + ["test"] * 3
+    assert result.attrs["preprocessing_fit_scope"] == "train_only"
+    assert result.attrs["final_normalization_fit_scope"] == "train_only"
+    assert set(result.data_vars) == {"t2m_pca", "sp_pca"}
+
+
+def test_parquet_matrix_contains_time_split_and_all_components(tmp_path) -> None:
+    region = tmp_path / "BA_SE"
+    region.mkdir()
+    write_meteorological_file(region / "2t.nc", "t2m", 1.0)
+    write_meteorological_file(region / "sp.nc", "sp", 2.0)
+    dataset = build_pca_dataset(
+        region,
+        {"t2m": 1, "sp": 2},
+        train_fraction=0.70,
+        validation_fraction=0.15,
+    )
+
+    result = pca_dataset_to_dataframe(dataset)
+
+    assert result.columns.tolist() == ["time", "split", "t2m_pca", "sp_pca_0", "sp_pca_1"]
+    assert result["split"].value_counts().to_dict() == {"train": 14, "validation": 3, "test": 3}
+
+    train_features = result.loc[result["split"] == "train", ["t2m_pca", "sp_pca_0"]]
+    np.testing.assert_allclose(train_features.mean().to_numpy(), 0.0, atol=1e-12)
+    np.testing.assert_allclose(train_features.std(ddof=0).to_numpy(), 1.0, atol=1e-12)
+
+
+def test_runner_writes_one_parquet_per_region(tmp_path, monkeypatch) -> None:
     input_directory = tmp_path / "meteoro-recortado"
-    region_directory = input_directory / "BA_SE"
-    region_directory.mkdir(parents=True)
-    write_meteorological_file(
-        region_directory / "2t.nc", "t2m", 1.0, has_missing_value=True
-    )
-    write_meteorological_file(region_directory / "sp.nc", "sp", 2.0, first_hour=1)
-    output_directory = tmp_path / "ml-data"
+    region = input_directory / "CE"
+    region.mkdir(parents=True)
+    write_meteorological_file(region / "2t.nc", "t2m", 1.0)
+    output_directory = tmp_path / "meteoro"
+    monkeypatch.setattr(runner, "REGIONS_TO_PROCESS", None)
+    monkeypatch.setattr(runner, "PCA_COMPONENTS_BY_VARIABLE", {"t2m": 1})
+    monkeypatch.setattr(runner, "OVERWRITE_EXISTING_OUTPUTS", False)
 
-    outputs = process_all_regions(
-        input_directory=input_directory,
-        output_directory=output_directory,
-        pca_configuration={"wind": {"t2m": 1}, "solar": {"sp": 2}},
-    )
+    monkeypatch.setattr(runner, "INPUT_DIRECTORY", input_directory)
+    monkeypatch.setattr(runner, "OUTPUT_DIRECTORY", output_directory)
 
-    assert outputs == [
-        output_directory / "BA_SE" / "wind_pca.nc",
-        output_directory / "BA_SE" / "solar_pca.nc",
-    ]
-    with xr.open_dataset(outputs[0]) as wind_result:
-        assert set(wind_result.data_vars) == {"t2m_pca"}
-        assert wind_result.sizes["time"] == 20
-        assert wind_result.sizes["t2m_pca_component"] == 1
-        assert wind_result.attrs["dataset_name"] == "wind"
-        assert wind_result.attrs["variables"] == "t2m"
-        assert wind_result.attrs["pca_components_requested"] == '{"t2m": 1}'
+    outputs = runner.main()
 
-    with xr.open_dataset(outputs[1]) as solar_result:
-        assert set(solar_result.data_vars) == {"sp_pca"}
-        assert solar_result.sizes["time"] == 19
-        assert solar_result.sizes["sp_pca_component"] == 2
-        assert solar_result.attrs["dataset_name"] == "solar"
-        assert solar_result.attrs["variables"] == "sp"
-        assert solar_result.attrs["pca_components_requested"] == '{"sp": 2}'
-
-    with xr.open_dataset(outputs[1]) as result:
-        assert result.sizes["time"] == 19
-        assert "split" not in result.coords
-        assert result.attrs["region"] == "BA_SE"
-        assert result.attrs["pca_fit_scope"] == "full_time_series"
-
-    wind_parquet = pd.read_parquet(output_directory / "BA_SE" / "t2m_pca.parquet")
-    solar_parquet = pd.read_parquet(output_directory / "BA_SE" / "sp_pca.parquet")
-    assert wind_parquet.columns.tolist() == ["time", "t2m_pca"]
-    assert solar_parquet.columns.tolist() == ["time", "sp_pca_0", "sp_pca_1"]
-    assert wind_parquet.shape == (20, 2)
-    assert solar_parquet.shape == (19, 3)
-
-
-
-def test_log1p_for_precipitation_preserves_zero_and_compresses_high_values(tmp_path) -> None:
-    source_path = tmp_path / "tp.nc"
-    matrix = xr.DataArray(
-        [[0.0, np.nan], [1.0, 99.0]],
-        dims=("time", "spatial_point"),
-    )
-
-    transformed = apply_log1p_transform(matrix, source_path)
-
-    np.testing.assert_allclose(transformed.values[[0, 1], [0, 0]], [0.0, np.log(2)])
-    assert transformed.values[1, 1] == np.log(100)
-    assert np.isnan(transformed.values[0, 1])
-
-
-def test_pca_configuration_accepts_a_different_value_for_each_variable(tmp_path) -> None:
-    input_directory = tmp_path / "meteoro-recortado"
-    region_directory = input_directory / "BA_SE"
-    region_directory.mkdir(parents=True)
-    write_meteorological_file(region_directory / "2t.nc", "t2m", 1.0)
-    write_meteorological_file(region_directory / "sp.nc", "sp", 2.0)
-
-    output_path = process_all_regions(
-        input_directory=input_directory,
-        output_directory=tmp_path / "ml-data",
-        pca_configuration={"weather": {"t2m": 1, "sp": 2}},
-    )[0]
-
-    with xr.open_dataset(output_path) as result:
-        assert result.sizes["t2m_pca_component"] == 1
-        assert result.sizes["sp_pca_component"] == 2
-        assert result.attrs["pca_components_requested"] == '{"t2m": 1, "sp": 2}'
-
-
-def test_create_data_features_merges_hourly_and_prefixed_pca_features(tmp_path) -> None:
-    time = np.datetime64("2024-01-01T00") + np.arange(20).astype("timedelta64[h]")
-    hourly_path = tmp_path / "date_features.nc"
-    xr.Dataset({"hour_sin": ("time", np.arange(20.0))}, coords={"time": time}).to_netcdf(
-        hourly_path
-    )
-
-    wind_path = tmp_path / "BA_SE_wind_pca.nc"
-    xr.Dataset(
-        {"tp_pca": (("time", "tp_pca_component"), np.ones((20, 1)))},
-        coords={
-            "time": time,
-            "tp_pca_component": [0],
-        },
-        attrs={"region": "BA_SE", "dataset_name": "wind"},
-    ).to_netcdf(wind_path)
-
-    solar_path = tmp_path / "CE_solar_pca.nc"
-    xr.Dataset(
-        {"ssr_pca": (("time", "ssr_pca_component"), np.ones((19, 2)))},
-        coords={
-            "time": time[1:],
-            "ssr_pca_component": [0, 1],
-        },
-        attrs={"region": "CE", "dataset_name": "solar"},
-    ).to_netcdf(solar_path)
-
-    output_path = create_data_features(
-        hourly_path, [wind_path, solar_path], tmp_path / "data_features.nc"
-    )
-
-    with xr.open_dataset(output_path) as result:
-        assert set(result.data_vars) == {
-            "hour_sin",
-            "BA_SE_wind_tp_pca",
-            "CE_solar_ssr_pca",
-            "X",
-        }
-        assert result.sizes["time"] == 19
-        assert result.X.dims == ("time", "feature")
-        assert result.X.sizes["feature"] == 4
-        assert result.feature.values.tolist() == [
-            "hour_sin",
-            "BA_SE_wind_tp_pca",
-            "CE_solar_ssr_pca_0",
-            "CE_solar_ssr_pca_1",
-        ]
-        assert result.time.values[0] == time[1]
-        assert result.attrs["time_alignment"] == "inner"
-        assert "split" not in result.coords
-
-    parquet = pd.read_parquet(tmp_path / "data_features.parquet")
-    assert parquet.shape == (19, 5)
-
-
-def test_save_date_features_parquet_writes_shared_time_features(tmp_path) -> None:
-    time = np.datetime64("2024-01-01T00") + np.arange(3).astype("timedelta64[h]")
-    input_path = tmp_path / "date_features.nc"
-    xr.Dataset(
-        {
-            "hour_sin": ("time", [0.0, 1.0, 0.0]),
-            "weekday": ("time", [0, 0, 0]),
-        },
-        coords={"time": time},
-    ).to_netcdf(input_path)
-
-    output_path = save_date_features_parquet(
-        input_path, tmp_path / "date_features.parquet"
-    )
-
-    result = pd.read_parquet(output_path)
-    assert result.columns.tolist() == ["time", "hour_sin", "weekday"]
-    assert result.shape == (3, 3)
-    assert result["time"].tolist() == time.tolist()
-
-
-def test_build_ml_feature_matrix_flattens_each_component_into_a_column() -> None:
-    dataset = xr.Dataset(
-        {
-            "hour_sin": ("time", [0.0, 1.0]),
-            "wind_pca": (("time", "wind_component"), [[2.0, 3.0], [4.0, 5.0]]),
-        },
-        coords={"time": [0, 1], "wind_component": [0, 1]},
-    )
-
-    matrix = build_ml_feature_matrix(dataset)
-
-    assert matrix.dims == ("time", "feature")
-    assert matrix.feature.values.tolist() == [
-        "hour_sin",
-        "wind_pca_0",
-        "wind_pca_1",
-    ]
-    np.testing.assert_allclose(matrix.values, [[0.0, 2.0, 3.0], [1.0, 4.0, 5.0]])
+    output_path = output_directory / "CE" / "pca_features.parquet"
+    assert outputs == [output_path]
+    assert list(pd.read_parquet(output_path).columns) == ["time", "split", "t2m_pca"]

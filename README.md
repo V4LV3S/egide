@@ -66,77 +66,41 @@ paralelismo manual e uso com Parquet ou CSV.
 
 ### Features meteorologicas com PCA
 
-O fluxo abaixo processa todos os NetCDFs em cada pasta de
-`data/processed/meteoro-recortado/` e grava uma unica saida por regiao em
-`ml/data/{REGIAO}_pca.nc`. O escalonamento e a PCA sao ajustados apenas com os
-70% iniciais da serie; os 15% seguintes sao rotulados como validacao e os 15%
-finais como teste. O fluxo mantem somente os instantes presentes em todas as
-variaveis da regiao e preenche lacunas pontuais pela mediana aprendida no treino.
+O fluxo e dividido em `ml/scripts/pca_pipeline.py`, que concentra as etapas
+reutilizaveis, e `ml/scripts/create_pca_features.py`, que contem a configuracao
+editavel na IDE. Para cada regiao, as variaveis NetCDF configuradas sao
+alinhadas nos instantes em comum e separadas cronologicamente em treino (70%),
+validacao (15%) e teste (15%).
 
-Em cada grupo de variaveis, o script executa explicitamente: (1) carregamento
-e alinhamento temporal, (2) separacao cronologica em treino, validacao e teste,
-(3) imputacao e normalizacao ajustadas apenas no treino, (4) ajuste da PCA no
-treino e projecao das tres particoes e (5) gravacao do NetCDF comprimido com os
-rotulos da particao e metadados.
+A sequencia evita vazamento de dados:
 
-Por padrao, `tcc` nao recebe padronizacao: como ja e uma fracao entre 0 e 1,
-ele passa apenas pela imputacao de lacunas antes da PCA. A tupla
-`VARIABLES_WITHOUT_STANDARDIZATION` permite ajustar essa regra no codigo.
+1. Para cada variavel, valores ausentes sao imputados e o primeiro
+   `StandardScaler` e ajustado apenas no treino; validacao e teste recebem a
+   mesma transformacao.
+2. A PCA de cada variavel e ajustada somente no treino normalizado e projeta
+   treino, validacao e teste.
+3. As componentes de todas as variaveis sao concatenadas para formar
+   `X_train`, `X_validation` e `X_test`.
+4. Um segundo `StandardScaler` e ajustado em `X_train` e transforma as tres
+   matrizes, resultando nas features finais do modelo.
 
-Para `tp`, o script aplica `log1p` aos valores em mm antes da imputacao e da
-normalizacao: zero permanece zero, enquanto eventos de precipitacao muito altos
-tem sua influencia reduzida. A tupla `VARIABLES_WITH_LOG1P` controla quais
-variaveis recebem essa transformacao.
+`tp` recebe `log1p` antes dessas etapas; a transformacao e configurada por
+`VARIABLES_WITH_LOG1P`. Edite tambem `PCA_COMPONENTS_BY_VARIABLE`,
+`TRAIN_FRACTION` e `VALIDATION_FRACTION` diretamente em
+`ml/scripts/create_pca_features.py` e execute o arquivo pela IDE.
 
-Abra `ml/scripts/create_pca_features.py` na IDE e altere
-`PCA_CONFIGURATION` na secao `CONFIGURACAO EDITAVEL`. Ela define, para cada
-dataset e variavel, a variancia explicada (valor entre 0 e 1) ou o numero fixo
-de componentes. Por exemplo, `{"solar": {"ssr": 0.95, "tcc": 5}}` usa 95%
-da variancia para `ssr` e cinco componentes para `tcc`. Cada chave externa
-gera um arquivo `{REGIAO}_{DATASET}_pca.nc`; os nomes das variaveis devem ser
-os internos dos NetCDFs, como `ws100`, `ssr`, `str` e `tcc`. Em seguida,
-execute o arquivo pela propria IDE.
-
-Por padrao, a saida e organizada para montagem manual do dataset de ML:
+Cada regiao gera um unico arquivo:
 
 ```text
 ml/data/
-`-- BA_SE/
-    |-- wind/
-    |   |-- wind_pca.nc
-    |   |-- t2m_pca.parquet
-    |   `-- tp_pca.parquet
-    `-- solar/
-        |-- solar_pca.nc
-        |-- ssr_pca.parquet
-        `-- tcc_pca.parquet
+`-- meteoro/
+    `-- BA_SE/
+        `-- pca_features.parquet
 ```
 
-Cada Parquet possui `time`, `split` e uma coluna para cada componente PCA da
-variavel. Assim, e possivel escolher variaveis, unir com `date_features.nc` e
-incluir alvos manualmente. Defina `CREATE_COMBINED_DATASET = True` se tambem
-quiser gerar a combinacao automatica em `data_features.nc` e Parquet.
-
-O mesmo script tambem converte `ml/data/date_features.nc` em
-`ml/data/date_features.parquet`. Esse arquivo compartilhado possui `time` e as
-features de calendario, sem `split`, para que possa ser unido manualmente aos
-Parquets de qualquer estado.
-
-Exemplo de uso:
-
-```python
-import xarray as xr
-
-with xr.open_dataset("ml/data/BA_SE/wind/wind_pca.nc") as wind:
-    componentes_de_vento = wind.t2m_pca
-```
-
-```python
-import pandas as pd
-
-tp = pd.read_parquet("ml/data/BA_SE/wind/tp_pca.parquet")
-X_tp = tp.drop(columns=["time", "split"])
-```
+O Parquet contem `time`, `split` (`train`, `validation` ou `test`) e uma coluna
+por componente PCA, como `t2m_pca_0` e `tp_pca_0`. Ele e a matriz meteorologica
+final, pronta para ser unida aos alvos e demais features no fluxo do modelo.
 
 ## Documentacao
 

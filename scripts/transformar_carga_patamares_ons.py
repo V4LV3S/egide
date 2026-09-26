@@ -89,10 +89,45 @@ def somar_baoe_e_base(baoe: pd.DataFrame, base: pd.DataFrame) -> pd.DataFrame:
     return resultado[["cod_areacarga", *chaves, "n_amostras", "hora_completa", *valores]]
 
 
+def remover_carga_base_diaria(dados: pd.DataFrame) -> pd.DataFrame:
+    """Remove a carga-base diária a partir das seis horas nas extremidades.
+
+    Para cada dia, a referência é a média de ``val_cargammgd`` nas três
+    primeiras e três últimas horas disponíveis. Essa referência é subtraída de
+    todas as horas do dia; resultados menores que 1,05% da referência viram
+    zero.
+    """
+    obrigatorias = {"time", "val_cargammgd"}
+    ausentes = obrigatorias - set(dados.columns)
+    if ausentes:
+        raise ValueError(f"Colunas obrigatórias ausentes: {sorted(ausentes)}")
+
+    resultado = dados.copy()
+    resultado["time"] = pd.to_datetime(resultado["time"], errors="raise")
+    resultado = resultado.sort_values("time").copy()
+    dias = resultado["time"].dt.normalize()
+    posicao_no_dia = resultado.groupby(dias).cumcount()
+    horas_no_dia = resultado.groupby(dias)["time"].transform("size")
+    horas_de_referencia = (posicao_no_dia < 3) | (posicao_no_dia >= horas_no_dia - 3)
+    referencia_por_dia = (
+        resultado.loc[horas_de_referencia]
+        .groupby(dias[horas_de_referencia])["val_cargammgd"]
+        .mean()
+    )
+    referencia = dias.map(referencia_por_dia)
+
+    resultado["val_cargammgd"] = resultado["val_cargammgd"] - referencia
+    resultado.loc[
+        resultado["val_cargammgd"] < referencia * 0.0105,
+        "val_cargammgd",
+    ] = 0
+    return resultado
+
+
 def salvar_bases_mmgd_horaria(
     bases_horarias: dict[str, pd.DataFrame], diretorio_saida: Path
 ) -> list[Path]:
-    """Grava uma vez a base final: somente data/hora e ``val_cargammgd``.
+    """Grava uma vez a base final: ``time`` e ``val_cargammgd``.
 
     O nome de cada arquivo identifica a área; por isso ``cod_areacarga`` não é
     repetido como coluna. Não existem Parquets horários intermediários.
@@ -103,8 +138,13 @@ def salvar_bases_mmgd_horaria(
         if "val_cargammgd" not in dados.columns:
             continue
         destino = diretorio_saida / nome
-        dados[["din_referenciabrasilia", "val_cargammgd"]].to_parquet(destino, index=False)
-        print(f"{nome}: data/hora + val_cargammgd -> {destino}")
+        saida = dados[["din_referenciabrasilia", "val_cargammgd"]].rename(
+            columns={"din_referenciabrasilia": "time"}
+        )
+        saida = remover_carga_base_diaria(saida)
+        saida["time"] = pd.to_datetime(saida["time"], errors="raise").dt.tz_localize(None)
+        saida.to_parquet(destino, index=False)
+        print(f"{nome}: time + val_cargammgd -> {destino}")
         destinos.append(destino)
     return destinos
 
