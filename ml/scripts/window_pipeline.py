@@ -21,6 +21,7 @@ DEFAULT_CALENDAR_COLUMNS = (
     "month_sin",
     "month_cos",
 )
+
 SPLIT_NAMES = ("train", "validation", "test")
 
 

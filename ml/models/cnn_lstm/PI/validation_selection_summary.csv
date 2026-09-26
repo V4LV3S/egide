@@ -1,0 +1,2 @@
+name,conv_filters,kernel_size,lstm_hidden_size,calendar_hidden_size,dropout,mae_mean,mae_std,rmse_mean,rmse_std,nrmse_percent_mean,nrmse_percent_std,r2_mean,r2_std,mape_percent_mean,mape_percent_std,smape_percent_mean,smape_percent_std,best_epoch_mean,best_epoch_std
+larger_cnn_lstm,"(64, 128)",3,128,64,0.2,0.035410426557064056,0.0010327955684408259,0.06897652968764305,0.002556597358694817,6.598392561643715,0.24456772573398913,0.9536611267768261,0.003441974768453632,136497.6078125,42569.62973335911,105.06526641845703,0.8844698307739988,5.3,2.3118054512532935
