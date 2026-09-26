@@ -103,3 +103,40 @@ Ficam **fora** das features: alvos de curtailment, razões, origens e intercâmb
 - Bahia e Sergipe unidos: geração de referência, GNR e minutos são somados por instante. As flags de razão e origem usam máximo (1 se qualquer um teve a ocorrência).
 - Carga e intercâmbio não são filtrados por subsistema na leitura. A carga entra pelo subsistema do estado, e o intercâmbio é uma variável do sistema inteiro.
 - Os arquivos `.npy` são gravados com `open_memmap` e podem ser lidos com `np.load(path, mmap_mode="r")`.
+
+
+### state_hourly.parquet
+| Coluna | Descrição |
+|---|---|
+| `datetime` | Data e hora da observação |
+| `id_estado` | Identificador do estado/grupo |
+| `nom_estado` | Nome do estado/grupo |
+| `id_subsistema` | Identificador do subsistema |
+| `nom_subsistema` | Nome do subsistema |
+| `GerRenEOL_MW` | Geração eólica de referência agregada (MW) |
+| `curtailment_MWmed` | Volume de geração restringida / não realizada (MWmed) |
+| `curtailment_MWh` | Energia restringida na hora (MWh) |
+| `curtailment_minutes` | Minutos de constrained-off na hora |
+| `curtailment_minutes_set_sum` | Soma dos minutos de restrição |
+| `curtailment_flag` | Indicador de ocorrência de constrained-off (0/1) |
+| `complete_eolic_hour` | Hora com os 2 registros de 30 min disponíveis (0/1) |
+| `reason_REL` | Restrição por motivo REL (0/1) |
+| `reason_CNF` | Restrição por motivo CNF (0/1) |
+| `reason_ENE` | Restrição por motivo ENE (0/1) |
+| `reason_PAR` | Restrição por motivo PAR (0/1) |
+| `origin_LOC` | Origem da restrição: LOC (0/1) |
+| `origin_SIS` | Origem da restrição: SIS (0/1) |
+| `minutes_REL` | Minutos de restrição REL |
+| `minutes_CNF` | Minutos de restrição CNF |
+| `minutes_ENE` | Minutos de restrição ENE |
+| `load_subsystem_MWmed` | Carga horária do subsistema (MWmed) |
+| `interchange_verified_*` | Intercâmbio verificado entre subsistemas (MWmed) |
+| `hour_sin/cos` | Codificação cíclica da hora |
+| `dow_sin/cos` | Codificação cíclica do dia da semana |
+| `doy_sin/cos` | Codificação cíclica do dia do ano |
+| `is_weekend` | Indicador de fim de semana (0/1) |
+| `GerRenEOL_lag_*h` | Geração eólica de X horas atrás |
+| `GerRenEOL_roll_*_*h` | Estatísticas móveis da geração eólica |
+| `GerRenEOL_change_*h` | Variação da geração em relação a X horas |
+| `GerRenEOL_pct_change_*h` | Variação percentual da geração |
+| `state_idx` | Índice numérico do estado para o modelo |
