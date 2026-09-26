@@ -1,7 +1,7 @@
 import pandas as pd
 
 from scripts.transformar_carga_patamares_ons import (
-    salvar_base_mmgd_horaria,
+    salvar_bases_mmgd_horaria,
     somar_baoe_e_base,
     transformar_carga,
 )
@@ -82,16 +82,18 @@ def test_somar_baoe_e_base_soma_apenas_medidas() -> None:
     assert resultado["hora_completa"]
 
 
-def test_salvar_base_mmgd_horaria_mantem_apenas_data_e_mmgd(tmp_path) -> None:
+def test_salvar_bases_mmgd_horaria_grava_uma_unica_saida_final(tmp_path) -> None:
     dados = pd.DataFrame({
         "din_referenciabrasilia": pd.to_datetime(["2025-01-01T00:00:00-03:00"]),
         "val_cargammgd": [12.5],
         "val_cargaglobal": [300.0],
     })
-    dados.to_parquet(tmp_path / "BA_SE_cargaverificada.parquet", index=False)
 
-    destinos = salvar_base_mmgd_horaria(tmp_path)
+    destinos = salvar_bases_mmgd_horaria(
+        {"BA_SE_cargaverificada.parquet": dados}, tmp_path
+    )
     resultado = pd.read_parquet(destinos[0])
 
+    assert destinos == [tmp_path / "BA_SE_cargaverificada.parquet"]
     assert list(resultado.columns) == ["din_referenciabrasilia", "val_cargammgd"]
     assert resultado.iloc[0]["val_cargammgd"] == 12.5

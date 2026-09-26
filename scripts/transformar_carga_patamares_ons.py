@@ -10,9 +10,8 @@ AMOSTRAS_POR_HORA = 2
 
 # Configuração editável para execução direta pela IDE.
 INPUT_DIRECTORY = Path("data/processed/carga")
-OUTPUT_DIRECTORY = Path("data/processed/carga/horaria")
+OUTPUT_DIRECTORY = Path("ml/data/carga-horaria-mmgd")
 SUM_BAOE_AND_BASE = True
-SAVE_MMGD_ONLY = True
 
 
 def chaves_horarias(referencia_utc: pd.Series) -> pd.DataFrame:
@@ -34,11 +33,7 @@ def chaves_horarias(referencia_utc: pd.Series) -> pd.DataFrame:
 
 
 def transformar_carga(dados: pd.DataFrame) -> pd.DataFrame:
-    """Calcula a média de cada par de amostras semihorárias do ONS.
-
-    A saída fica indexada pelo fim do intervalo horário: por exemplo, o valor
-    de ``2025-01-01 00:00`` representa a média de 23:30 e 00:00 locais.
-    """
+    """Calcula a média de cada par de amostras semihorárias do ONS."""
     obrigatorias = {"cod_areacarga", "din_referenciautc"}
     ausentes = obrigatorias - set(dados.columns)
     if ausentes:
@@ -64,19 +59,8 @@ def transformar_carga(dados: pd.DataFrame) -> pd.DataFrame:
 
 
 def somar_baoe_e_base(baoe: pd.DataFrame, base: pd.DataFrame) -> pd.DataFrame:
-    """Soma as medidas horárias de BAOE e BASE, formando a área BA_SE.
-
-    A soma é aplicada exclusivamente às colunas ``val_*``. Metadados do
-    intervalo não são somados: ``n_amostras`` permanece a quantidade de
-    medições por área, e ``hora_completa`` só é verdadeira quando ambos os
-    arquivos têm a hora completa.
-    """
+    """Soma as medidas horárias de BAOE e BASE, formando a área BA_SE."""
     chaves = ["din_referenciautc", "din_referenciabrasilia"]
-    for nome, dados in (("BAOE", baoe), ("BASE", base)):
-        ausentes = set(chaves) - set(dados.columns)
-        if ausentes:
-            raise ValueError(f"{nome} sem colunas de horário: {sorted(ausentes)}")
-
     valores_baoe = {coluna for coluna in baoe if coluna.startswith("val_")}
     valores_base = {coluna for coluna in base if coluna.startswith("val_")}
     if valores_baoe != valores_base:
@@ -85,10 +69,9 @@ def somar_baoe_e_base(baoe: pd.DataFrame, base: pd.DataFrame) -> pd.DataFrame:
     if not valores:
         raise ValueError("Não há colunas de medida 'val_' para somar.")
 
-    colunas_baoe = [*chaves, "n_amostras", "hora_completa", *valores]
-    colunas_base = [*chaves, "n_amostras", "hora_completa", *valores]
-    unidos = baoe[colunas_baoe].merge(
-        base[colunas_base],
+    colunas = [*chaves, "n_amostras", "hora_completa", *valores]
+    unidos = baoe[colunas].merge(
+        base[colunas],
         on=chaves,
         how="inner",
         validate="one_to_one",
@@ -106,68 +89,41 @@ def somar_baoe_e_base(baoe: pd.DataFrame, base: pd.DataFrame) -> pd.DataFrame:
     return resultado[["cod_areacarga", *chaves, "n_amostras", "hora_completa", *valores]]
 
 
-def tipo_carga(caminho: Path) -> str:
-    """Extrai o tipo de carga de ``<area>_<tipo>.parquet``."""
-    partes = caminho.stem.split("_", maxsplit=1)
-    if len(partes) != 2:
-        raise ValueError(f"Nome de arquivo inválido: {caminho.name}")
-    return partes[1]
+def salvar_bases_mmgd_horaria(
+    bases_horarias: dict[str, pd.DataFrame], diretorio_saida: Path
+) -> list[Path]:
+    """Grava uma vez a base final: somente data/hora e ``val_cargammgd``.
 
-
-def consolidar_baoe_e_base(diretorio: Path) -> list[Path]:
-    """Lê BAOE e BASE horários e grava um Parquet BA_SE para cada tipo comum."""
+    O nome de cada arquivo identifica a área; por isso ``cod_areacarga`` não é
+    repetido como coluna. Não existem Parquets horários intermediários.
+    """
+    diretorio_saida.mkdir(parents=True, exist_ok=True)
     destinos: list[Path] = []
-    for fonte_baoe in sorted(diretorio.glob("BAOE_*.parquet")):
-        tipo = tipo_carga(fonte_baoe)
-        fonte_base = diretorio / f"BASE_{tipo}.parquet"
-        if not fonte_base.exists():
-            raise FileNotFoundError(f"Arquivo BASE correspondente não encontrado: {fonte_base}")
-        resultado = somar_baoe_e_base(
-            pd.read_parquet(fonte_baoe), pd.read_parquet(fonte_base)
-        )
-        resultado.insert(1, "tipo_carga", tipo)
-        destino = diretorio / f"BA_SE_{tipo}.parquet"
-        resultado.to_parquet(destino, index=False)
-        print(f"{fonte_baoe.name} + {fonte_base.name} -> {destino.name}")
-        destinos.append(destino)
-    return destinos
-
-
-def salvar_base_mmgd_horaria(diretorio: Path) -> list[Path]:
-    """Salva versões enxutas com data/hora de Brasília e carga MMGD."""
-    destino_diretorio = diretorio / "mmgd"
-    destinos: list[Path] = []
-    for fonte in sorted(diretorio.glob("*.parquet")):
-        dados = pd.read_parquet(fonte)
+    for nome, dados in sorted(bases_horarias.items()):
         if "val_cargammgd" not in dados.columns:
             continue
-        destino_diretorio.mkdir(parents=True, exist_ok=True)
-        destino = destino_diretorio / fonte.name
+        destino = diretorio_saida / nome
         dados[["din_referenciabrasilia", "val_cargammgd"]].to_parquet(destino, index=False)
-        print(f"{fonte.name}: data/hora + val_cargammgd -> {destino}")
+        print(f"{nome}: data/hora + val_cargammgd -> {destino}")
         destinos.append(destino)
     return destinos
 
 
 def processar_diretorio(entrada: Path, saida: Path) -> list[Path]:
-    """Transforma todos os Parquets diretamente dentro do diretório de entrada."""
-    fontes = sorted(entrada.glob("*.parquet"))
+    """Cria em memória as bases horárias e salva somente a saída MMGD final."""
+    fontes = sorted(entrada.glob("*cargaverificada.parquet"))
     if not fontes:
-        raise FileNotFoundError(f"Nenhum Parquet encontrado em {entrada}.")
-    saida.mkdir(parents=True, exist_ok=True)
-    destinos: list[Path] = []
-    for fonte in fontes:
-        resultado = transformar_carga(pd.read_parquet(fonte))
-        resultado.insert(1, "tipo_carga", tipo_carga(fonte))
-        destino = saida / fonte.name
-        resultado.to_parquet(destino, index=False)
-        print(f"{fonte.name}: {len(resultado):,} horas -> {destino}")
-        destinos.append(destino)
+        raise FileNotFoundError(f"Nenhum Parquet de carga verificada encontrado em {entrada}.")
+
+    bases_horarias = {
+        fonte.name: transformar_carga(pd.read_parquet(fonte)) for fonte in fontes
+    }
     if SUM_BAOE_AND_BASE:
-        destinos.extend(consolidar_baoe_e_base(saida))
-    if SAVE_MMGD_ONLY:
-        destinos.extend(salvar_base_mmgd_horaria(saida))
-    return destinos
+        bases_horarias["BA_SE_cargaverificada.parquet"] = somar_baoe_e_base(
+            bases_horarias["BAOE_cargaverificada.parquet"],
+            bases_horarias["BASE_cargaverificada.parquet"],
+        )
+    return salvar_bases_mmgd_horaria(bases_horarias, saida)
 
 
 def main() -> None:
