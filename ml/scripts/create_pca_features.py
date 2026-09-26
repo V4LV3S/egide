@@ -3,20 +3,18 @@
 Para cada regiao, o fluxo e executado nesta ordem:
 
 1. carregar e alinhar as variaveis no tempo;
-2. separar a serie temporal em treino, validacao e teste;
-3. ajustar imputacao e normalizacao somente no treino;
-4. ajustar a PCA no treino e aplicá-la nas tres particoes;
-5. salvar as features e os metadados em NetCDF e Parquet.
+2. imputar lacunas e, quando aplicável, normalizar a série inteira;
+3. ajustar e aplicar a PCA na série inteira;
+4. salvar as features e os metadados em NetCDF e Parquet.
 
 Cada pasta de ``data/processed/meteoro-recortado`` gera um arquivo por grupo,
-como ``ml/data/{REGIAO}_wind_pca.nc`` e ``ml/data/{REGIAO}_solar_pca.nc``.
+como ``ml/data/meteoro/{REGIAO}/meteoro_pca.nc`` e um Parquet por variável.
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -38,30 +36,24 @@ ROOT = Path(__file__).resolve().parents[2]
 # inteiro para definir a quantidade fixa de componentes (ex.: 20).
 INPUT_DIRECTORY = ROOT / "data" / "processed" / "meteoro-recortado"
 OUTPUT_DIRECTORY = ROOT / "ml" / "data"
+PCA_OUTPUT_DIRECTORY = OUTPUT_DIRECTORY / "meteoro"
 HOURLY_FEATURES_PATH = OUTPUT_DIRECTORY / "date_features.nc"
 HOURLY_FEATURES_PARQUET_PATH = OUTPUT_DIRECTORY / "date_features.parquet"
 DATA_FEATURES_PATH = OUTPUT_DIRECTORY / "data_features.nc"
 DATA_FEATURES_PARQUET_PATH = OUTPUT_DIRECTORY / "data_features.parquet"
-ML_PARTITIONS = ("train", "validation", "test")
 
-# A saida principal e organizada por regiao/dataset/variavel. A concatenacao
-# global com as features horarias fica opcional para a etapa manual seguinte.
+# A saída PCA é organizada diretamente por região. A separação temporal será
+# feita posteriormente pelo fluxo de LSTM.
 CREATE_COMBINED_DATASET = False
 
-# Configure cada dataset e cada variavel de forma independente. A chave
-# externa define o nome do arquivo de saida, e a interna e o nome da variavel
-# no NetCDF. O valor pode ser a variancia explicada (0--1) ou um numero fixo
-# de componentes. Exemplo: solar/ssr = 0.95 e solar/tcc = 5.
+# Configure as variáveis e o número de componentes (inteiro) ou a variância
+# explicada (float entre 0 e 1) usada na PCA.
 PCA_CONFIGURATION: dict[str, dict[str, PcaComponents]] = {
-    "wind": {
+    "meteoro": {
         "t2m": 0.95,
         "tp": 0.90,
         "ws100": 0.90,
-        "sp": 0.90
-    },
-    "solar": {
-        "t2m": 0.95,
-        "tp": 0.90,
+        "sp": 0.90,
         "ssr": 0.90,
         "tcc": 0.90,
     },
@@ -76,45 +68,7 @@ VARIABLES_WITHOUT_STANDARDIZATION = ("tcc",)
 # normalizacao e PCA, sem ajustar parametros com dados futuros.
 VARIABLES_WITH_LOG1P = ("tp",)
 
-TRAIN_FRACTION = 0.70
-VALIDATION_FRACTION = 0.15
 
-
-@dataclass(frozen=True)
-class TemporalPartitions:
-    """Fatias temporais contiguas para treino, validacao e teste."""
-
-    train: slice
-    validation: slice
-    test: slice
-
-
-@dataclass(frozen=True)
-class SplitData:
-    """Matriz espacial completa e seus tres subconjuntos temporais brutos."""
-
-    matrix: xr.DataArray
-    partitions: TemporalPartitions
-    train: np.ndarray
-    validation: np.ndarray
-    test: np.ndarray
-
-
-@dataclass(frozen=True)
-class NormalizedData:
-    """Subconjuntos imputados e opcionalmente normalizados pelo treino."""
-
-    train: np.ndarray
-    validation: np.ndarray
-    test: np.ndarray
-
-
-@dataclass(frozen=True)
-class PcaData:
-    """Features finais e modelo PCA ajustado somente com o treino."""
-
-    features: np.ndarray
-    model: PCA
 
 
 def validate_pca_components(value: PcaComponents) -> PcaComponents:
@@ -211,105 +165,20 @@ def apply_log1p_transform(
     return transformed
 
 
-def split_time_indices(
-    size: int,
-    train_fraction: float = TRAIN_FRACTION,
-    validation_fraction: float = VALIDATION_FRACTION,
-) -> tuple[slice, slice, slice]:
-    """Retorna fatias temporais contiguas para treino, validacao e teste."""
-    if not 0.0 < train_fraction < 1.0:
-        raise ValueError("train_fraction deve estar entre 0 e 1.")
-    if not 0.0 < validation_fraction < 1.0:
-        raise ValueError("validation_fraction deve estar entre 0 e 1.")
-    if train_fraction + validation_fraction >= 1.0:
-        raise ValueError("A soma das fracoes de treino e validacao deve ser menor que 1.")
 
-    train_end = int(size * train_fraction)
-    validation_end = int(size * (train_fraction + validation_fraction))
-    if train_end == 0 or validation_end == train_end or validation_end == size:
-        raise ValueError("A serie temporal nao possui instantes para todas as particoes.")
-    return slice(0, train_end), slice(train_end, validation_end), slice(validation_end, size)
-
-
-def create_temporal_partitions(
-    size: int,
-    train_fraction: float = TRAIN_FRACTION,
-    validation_fraction: float = VALIDATION_FRACTION,
-) -> TemporalPartitions:
-    """Cria particoes temporais contiguas para todo o fluxo de features."""
-    train, validation, test = split_time_indices(
-        size, train_fraction, validation_fraction
-    )
-    return TemporalPartitions(train=train, validation=validation, test=test)
-
-
-def split_labels(size: int) -> np.ndarray:
-    """Cria os rotulos de particao que acompanham as features salvas."""
-    partitions = create_temporal_partitions(size)
-    labels = np.empty(size, dtype="U10")
-    labels[partitions.train] = "train"
-    labels[partitions.validation] = "validation"
-    labels[partitions.test] = "test"
-    return labels
-
-
-def select_training_points(
-    matrix: xr.DataArray, train_slice: slice, source_path: Path
-) -> xr.DataArray:
-    """Remove pontos sem observacoes no treino, que nao podem ser imputados."""
-    train_matrix = matrix.isel(time=train_slice)
-    has_training_observation = ~np.isnan(train_matrix.values).all(axis=0)
-    filtered_matrix = matrix.isel(
-        spatial_point=np.flatnonzero(has_training_observation)
-    )
+def prepare_pca_input(
+    matrix: xr.DataArray, source_path: Path, standardize: bool
+) -> tuple[xr.DataArray, np.ndarray]:
+    """Remove pontos totalmente ausentes e ajusta o preparo na série inteira."""
+    has_observation = ~np.isnan(matrix.values).all(axis=0)
+    filtered_matrix = matrix.isel(spatial_point=np.flatnonzero(has_observation))
     if filtered_matrix.sizes["spatial_point"] == 0:
-        raise ValueError(f"{source_path} nao possui pontos observados no treino.")
-    return filtered_matrix
+        raise ValueError(f"{source_path} não possui pontos observados.")
 
-
-def split_data(
-    matrix: xr.DataArray, source_path: Path
-) -> SplitData:
-    """Separa a matriz temporal e remove pontos sem observacao no treino."""
-    partitions = create_temporal_partitions(matrix.sizes["time"])
-    filtered_matrix = select_training_points(matrix, partitions.train, source_path)
-    values = filtered_matrix.values
-    return SplitData(
-        matrix=filtered_matrix,
-        partitions=partitions,
-        train=values[partitions.train],
-        validation=values[partitions.validation],
-        test=values[partitions.test],
-    )
-
-
-def normalize_data(split: SplitData, standardize: bool = True) -> NormalizedData:
-    """Imputa e, opcionalmente, padroniza usando somente o treino.
-
-    A imputacao e sempre necessaria para a PCA. A padronizacao pode ser
-    desativada para variaveis ja normalizadas, como ``tcc`` (fracao de 0 a 1).
-    """
-    imputer = SimpleImputer(strategy="median")
-    train = imputer.fit_transform(split.train)
-    validation = imputer.transform(split.validation)
-    test = imputer.transform(split.test)
+    values = SimpleImputer(strategy="median").fit_transform(filtered_matrix.values)
     if standardize:
-        scaler = StandardScaler()
-        train = scaler.fit_transform(train)
-        validation = scaler.transform(validation)
-        test = scaler.transform(test)
-    return NormalizedData(train=train, validation=validation, test=test)
-
-
-def apply_pca_to_normalized_data(
-    normalized: NormalizedData, pca_components: PcaComponents
-) -> PcaData:
-    """Ajusta a PCA no treino e projeta treino, validacao e teste."""
-    pca = PCA(n_components=validate_pca_components(pca_components))
-    train = pca.fit_transform(normalized.train)
-    validation = pca.transform(normalized.validation)
-    test = pca.transform(normalized.test)
-    return PcaData(features=np.concatenate((train, validation, test)), model=pca)
+        values = StandardScaler().fit_transform(values)
+    return filtered_matrix, values
 
 
 def apply_pca(
@@ -317,31 +186,32 @@ def apply_pca(
     source_path: Path,
     pca_components: PcaComponents = 0.95,
 ) -> xr.DataArray:
-    """Executa as etapas de separacao, normalizacao e PCA de uma variavel."""
+    """Ajusta o preparo e a PCA usando toda a série temporal disponível."""
     matrix = prepare_feature_matrix(data_array, source_path)
     applies_log1p = data_array.name in VARIABLES_WITH_LOG1P
     if applies_log1p:
         matrix = apply_log1p_transform(matrix, source_path)
-    split = split_data(matrix, source_path)
     standardize = data_array.name not in VARIABLES_WITHOUT_STANDARDIZATION
-    normalized = normalize_data(split, standardize=standardize)
-    pca_data = apply_pca_to_normalized_data(normalized, pca_components)
+    matrix, values = prepare_pca_input(matrix, source_path, standardize)
+    pca = PCA(n_components=validate_pca_components(pca_components))
+    features = pca.fit_transform(values)
 
     component_dimension = f"{data_array.name}_pca_component"
     return xr.DataArray(
-        pca_data.features,
+        features,
         dims=("time", component_dimension),
         coords={
-            "time": split.matrix.time.values,
-            component_dimension: np.arange(pca_data.features.shape[1]),
+            "time": matrix.time.values,
+            component_dimension: np.arange(features.shape[1]),
         },
         name=f"{data_array.name}_pca",
         attrs={
             "source_variable": data_array.name,
             "pca_components_requested": str(validate_pca_components(pca_components)),
-            "explained_variance_ratio": pca_data.model.explained_variance_ratio_.tolist(),
+            "explained_variance_ratio": pca.explained_variance_ratio_.tolist(),
             "standardization": "standard" if standardize else "not applied",
             "value_transformation": "log1p" if applies_log1p else "none",
+            "fit_scope": "full_time_series",
         },
     )
 
@@ -399,7 +269,7 @@ def create_pca_dataset(
     dataset_name: str,
     pca_components_by_variable: PcaComponentsByVariable,
 ) -> xr.Dataset:
-    """Executa preparo, separacao, normalizacao e PCA para um grupo regional."""
+    """Executa preparo e PCA na série inteira para um grupo regional."""
     validated_configuration = validate_pca_configuration(
         {dataset_name: pca_components_by_variable}
     )[dataset_name]
@@ -416,7 +286,6 @@ def create_pca_dataset(
         )
     ]
     dataset = xr.merge(features)
-    dataset = dataset.assign_coords(split=("time", split_labels(dataset.sizes["time"])))
     dataset.attrs.update(
         {
             "region": region_directory.name,
@@ -431,9 +300,7 @@ def create_pca_dataset(
                 name for name in variable_names if name in VARIABLES_WITH_LOG1P
             ),
             "pca_components_requested": json.dumps(validated_configuration),
-            "train_fraction": TRAIN_FRACTION,
-            "validation_fraction": VALIDATION_FRACTION,
-            "test_fraction": 1.0 - TRAIN_FRACTION - VALIDATION_FRACTION,
+            "pca_fit_scope": "full_time_series",
             "time_alignment": "inner",
         }
     )
@@ -504,71 +371,31 @@ def build_ml_feature_matrix(dataset: xr.Dataset) -> xr.DataArray:
     return matrix
 
 
-def save_ml_partitions(dataset: xr.Dataset, output_path: Path) -> list[Path]:
-    """Grava matrizes ``X`` diretamente utilizaveis para treino, val e teste."""
-    if "split" not in dataset.coords:
-        raise ValueError("Dataset sem a coordenada 'split'.")
-    if "X" not in dataset.data_vars:
-        raise ValueError("Dataset sem a matriz de features 'X'.")
-
-    saved_paths: list[Path] = []
-    for partition in ML_PARTITIONS:
-        matrix = dataset["X"].where(dataset.split == partition, drop=True)
-        if matrix.sizes["time"] == 0:
-            raise ValueError(f"A particao {partition!r} nao possui instantes.")
-        partition_dataset = xr.Dataset({"X": matrix})
-        partition_dataset.attrs = dict(dataset.attrs)
-        partition_dataset.attrs.update(
-            {
-                "partition": partition,
-                "source_dataset": output_path.name,
-            }
-        )
-        partition_path = output_path.with_name(
-            f"{output_path.stem}_{partition}{output_path.suffix}"
-        )
-        save_pca_dataset(partition_dataset, partition_path)
-        saved_paths.append(partition_path)
-    return saved_paths
 
 
 def feature_dataframe(dataset: xr.Dataset) -> pd.DataFrame:
-    """Converte ``X(time, feature)`` e ``split`` em tabela para Parquet."""
-    if "X" not in dataset.data_vars or "split" not in dataset.coords:
-        raise ValueError("Dataset precisa conter a matriz 'X' e a coordenada 'split'.")
+    """Converte ``X(time, feature)`` em tabela para Parquet sem partições."""
+    if "X" not in dataset.data_vars:
+        raise ValueError("Dataset precisa conter a matriz 'X'.")
 
     dataframe = dataset["X"].to_pandas()
     dataframe.index.name = "time"
-    dataframe = dataframe.reset_index()
-    dataframe.insert(1, "split", dataset.split.values)
-    return dataframe
+    return dataframe.reset_index()
 
 
 def save_parquet_features(dataset: xr.Dataset, output_path: Path) -> list[Path]:
-    """Grava a tabela completa e uma tabela Parquet para cada particao."""
+    """Grava uma única tabela Parquet sem partições temporais."""
     dataframe = feature_dataframe(dataset)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     dataframe.to_parquet(output_path, index=False)
-    saved_paths = [output_path]
-
-    for partition in ML_PARTITIONS:
-        partition_dataframe = dataframe.loc[dataframe["split"] == partition]
-        if partition_dataframe.empty:
-            raise ValueError(f"A particao {partition!r} nao possui instantes.")
-        partition_path = output_path.with_name(
-            f"{output_path.stem}_{partition}{output_path.suffix}"
-        )
-        partition_dataframe.to_parquet(partition_path, index=False)
-        saved_paths.append(partition_path)
-    return saved_paths
+    return [output_path]
 
 
 def save_date_features_parquet(input_path: Path, output_path: Path) -> Path:
     """Converte ``date_features.nc`` em uma tabela Parquet compartilhada.
 
     A tabela mantem ``time`` e uma coluna para cada feature horaria. Ela nao
-    recebe ``split``, pois pode ser unida a datasets de qualquer estado antes
-    de cada modelo definir suas proprias particoes temporais.
+    não recebe classificação temporal; a separação será definida no treinamento.
     """
     if not input_path.is_file():
         raise FileNotFoundError(
@@ -589,13 +416,11 @@ def save_variable_parquets(
 ) -> list[Path]:
     """Grava um Parquet por variavel PCA em ``REGIAO/DATASET``.
 
-    Cada tabela possui ``time``, ``split`` e uma coluna por componente PCA, o
-    que permite ao proximo passo escolher e combinar features manualmente.
+    Cada tabela possui ``time`` e uma coluna por componente PCA. A separação
+    temporal é responsabilidade do fluxo de LSTM posterior.
     """
-    if "split" not in dataset.coords:
-        raise ValueError("Dataset PCA sem a coordenada 'split'.")
 
-    variable_directory = output_directory / region / dataset_name
+    variable_directory = output_directory / region
     variable_directory.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
     for variable_name, data_array in dataset.data_vars.items():
@@ -603,7 +428,6 @@ def save_variable_parquets(
         dataframe = columns.to_pandas()
         dataframe.index.name = "time"
         dataframe = dataframe.reset_index()
-        dataframe.insert(1, "split", dataset.split.values)
         output_path = variable_directory / f"{variable_name}.parquet"
         dataframe.to_parquet(output_path, index=False)
         paths.append(output_path)
@@ -615,7 +439,7 @@ def create_data_features(
     pca_paths: list[Path],
     output_path: Path,
 ) -> Path:
-    """Une features horarias e PCA no eixo ``time`` e grava ``data_features``.
+    """Une features horárias e PCA no eixo ``time`` e grava ``data_features``.
 
     A intersecao temporal e usada para garantir que toda linha final tenha as
     features horarias e meteorologicas. Cada feature PCA recebe os prefixos de
@@ -650,9 +474,6 @@ def create_data_features(
     combined = xr.merge(datasets, join="inner", compat="no_conflicts")
     if combined.sizes.get("time", 0) == 0:
         raise ValueError("As features horarias e PCA nao possuem instantes em comum.")
-    combined = combined.assign_coords(
-        split=("time", split_labels(combined.sizes["time"]))
-    )
     combined["X"] = build_ml_feature_matrix(combined)
     combined.attrs.update(
         {
@@ -663,7 +484,6 @@ def create_data_features(
         }
     )
     save_pca_dataset(combined, output_path)
-    save_ml_partitions(combined, output_path)
     save_parquet_features(combined, output_path.with_suffix(".parquet"))
     return output_path
 
@@ -674,11 +494,11 @@ def process_region(
     dataset_name: str,
     pca_components_by_variable: PcaComponentsByVariable,
 ) -> Path:
-    """Cria e persiste um grupo PCA, incluindo Parquets por variavel."""
+    """Cria e persiste um grupo PCA, com Parquets diretamente na pasta regional."""
     dataset = create_pca_dataset(
         region_directory, dataset_name, pca_components_by_variable
     )
-    group_directory = output_directory / region_directory.name / dataset_name
+    group_directory = output_directory / region_directory.name
     output_path = group_directory / f"{dataset_name}_pca.nc"
     save_pca_dataset(dataset, output_path)
     save_variable_parquets(
@@ -689,7 +509,7 @@ def process_region(
 
 def process_all_regions(
     input_directory: Path = INPUT_DIRECTORY,
-    output_directory: Path = OUTPUT_DIRECTORY,
+    output_directory: Path = PCA_OUTPUT_DIRECTORY,
     pca_configuration: PcaConfiguration = PCA_CONFIGURATION,
 ) -> list[Path]:
     """Gera um dataset PCA para cada configuracao e pasta regional."""
@@ -713,23 +533,17 @@ def process_all_regions(
 
 
 def main() -> None:
-    """Executa o fluxo com os valores da secao CONFIGURACAO EDITAVEL."""
-    date_features_parquet_path = save_date_features_parquet(
-        HOURLY_FEATURES_PATH, HOURLY_FEATURES_PARQUET_PATH
+    """Executa a PCA e grava os Parquets em ``ml/data/meteoro``."""
+    outputs = process_all_regions(
+        INPUT_DIRECTORY, PCA_OUTPUT_DIRECTORY, PCA_CONFIGURATION
     )
-    print(f"Concluido: {date_features_parquet_path}")
-    # outputs = process_all_regions(
-    #     INPUT_DIRECTORY,
-    #     OUTPUT_DIRECTORY,
-    #     PCA_CONFIGURATION,
-    # )
-    # for output_path in outputs:
-    #     print(f"Concluido: {output_path}")
-    # if CREATE_COMBINED_DATASET:
-    #     data_features_path = create_data_features(
-    #         HOURLY_FEATURES_PATH, outputs, DATA_FEATURES_PATH
-    #     )
-    #     print(f"Concluido: {data_features_path}")
+    for output_path in outputs:
+        print(f"Concluido: {output_path}")
+    if CREATE_COMBINED_DATASET:
+        data_features_path = create_data_features(
+            HOURLY_FEATURES_PATH, outputs, DATA_FEATURES_PATH
+        )
+        print(f"Concluido: {data_features_path}")
 
 
 if __name__ == "__main__":

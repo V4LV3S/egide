@@ -6,11 +6,9 @@ from ml.scripts.create_pca_features import (
     apply_log1p_transform,
     build_ml_feature_matrix,
     create_data_features,
-    normalize_data,
     prepare_feature_matrix,
     process_all_regions,
     save_date_features_parquet,
-    split_data,
 )
 
 
@@ -63,8 +61,8 @@ def test_process_all_regions_combines_pca_variables_by_region(tmp_path) -> None:
     )
 
     assert outputs == [
-        output_directory / "BA_SE" / "wind" / "wind_pca.nc",
-        output_directory / "BA_SE" / "solar" / "solar_pca.nc",
+        output_directory / "BA_SE" / "wind_pca.nc",
+        output_directory / "BA_SE" / "solar_pca.nc",
     ]
     with xr.open_dataset(outputs[0]) as wind_result:
         assert set(wind_result.data_vars) == {"t2m_pca"}
@@ -84,45 +82,17 @@ def test_process_all_regions_combines_pca_variables_by_region(tmp_path) -> None:
 
     with xr.open_dataset(outputs[1]) as result:
         assert result.sizes["time"] == 19
-        assert result.split.values.tolist() == (
-            ["train"] * 13 + ["validation"] * 3 + ["test"] * 3
-        )
+        assert "split" not in result.coords
         assert result.attrs["region"] == "BA_SE"
-        assert result.attrs["time_alignment"] == "inner"
+        assert result.attrs["pca_fit_scope"] == "full_time_series"
 
-    wind_parquet = pd.read_parquet(output_directory / "BA_SE" / "wind" / "t2m_pca.parquet")
-    solar_parquet = pd.read_parquet(output_directory / "BA_SE" / "solar" / "sp_pca.parquet")
-    assert wind_parquet.columns.tolist() == ["time", "split", "t2m_pca"]
-    assert solar_parquet.columns.tolist() == ["time", "split", "sp_pca_0", "sp_pca_1"]
-    assert wind_parquet.shape == (20, 3)
-    assert solar_parquet.shape == (19, 4)
+    wind_parquet = pd.read_parquet(output_directory / "BA_SE" / "t2m_pca.parquet")
+    solar_parquet = pd.read_parquet(output_directory / "BA_SE" / "sp_pca.parquet")
+    assert wind_parquet.columns.tolist() == ["time", "t2m_pca"]
+    assert solar_parquet.columns.tolist() == ["time", "sp_pca_0", "sp_pca_1"]
+    assert wind_parquet.shape == (20, 2)
+    assert solar_parquet.shape == (19, 3)
 
-
-def test_normalization_is_fitted_only_with_the_training_partition(tmp_path) -> None:
-    source_path = tmp_path / "t2m.nc"
-    write_meteorological_file(source_path, "t2m", 1.0)
-    with xr.open_dataset(source_path) as dataset:
-        matrix = prepare_feature_matrix(dataset.t2m.load(), source_path)
-
-    split = split_data(matrix, source_path)
-    normalized = normalize_data(split)
-
-    np.testing.assert_allclose(normalized.train.mean(axis=0), 0.0, atol=1e-12)
-    assert not np.allclose(normalized.validation.mean(axis=0), 0.0)
-
-
-def test_normalization_can_skip_standard_scaler_for_tcc(tmp_path) -> None:
-    source_path = tmp_path / "tcc.nc"
-    write_meteorological_file(source_path, "tcc", 0.01)
-    with xr.open_dataset(source_path) as dataset:
-        matrix = prepare_feature_matrix(dataset.tcc.load(), source_path)
-
-    split = split_data(matrix, source_path)
-    normalized = normalize_data(split, standardize=False)
-
-    np.testing.assert_allclose(normalized.train, split.train)
-    np.testing.assert_allclose(normalized.validation, split.validation)
-    np.testing.assert_allclose(normalized.test, split.test)
 
 
 def test_log1p_for_precipitation_preserves_zero_and_compresses_high_values(tmp_path) -> None:
@@ -171,7 +141,6 @@ def test_create_data_features_merges_hourly_and_prefixed_pca_features(tmp_path) 
         coords={
             "time": time,
             "tp_pca_component": [0],
-            "split": ("time", ["train"] * 20),
         },
         attrs={"region": "BA_SE", "dataset_name": "wind"},
     ).to_netcdf(wind_path)
@@ -182,7 +151,6 @@ def test_create_data_features_merges_hourly_and_prefixed_pca_features(tmp_path) 
         coords={
             "time": time[1:],
             "ssr_pca_component": [0, 1],
-            "split": ("time", ["train"] * 19),
         },
         attrs={"region": "CE", "dataset_name": "solar"},
     ).to_netcdf(solar_path)
@@ -209,32 +177,10 @@ def test_create_data_features_merges_hourly_and_prefixed_pca_features(tmp_path) 
         ]
         assert result.time.values[0] == time[1]
         assert result.attrs["time_alignment"] == "inner"
-        assert result.split.values.tolist() == (
-            ["train"] * 13 + ["validation"] * 3 + ["test"] * 3
-        )
-
-    for partition, expected_size in (("train", 13), ("validation", 3), ("test", 3)):
-        with xr.open_dataset(tmp_path / f"data_features_{partition}.nc") as split:
-            assert set(split.data_vars) == {"X"}
-            assert split.X.sizes == {"time": expected_size, "feature": 4}
-            assert split.attrs["partition"] == partition
-
-        parquet_partition = pd.read_parquet(
-            tmp_path / f"data_features_{partition}.parquet"
-        )
-        assert parquet_partition.shape == (expected_size, 6)
-        assert parquet_partition.columns.tolist() == [
-            "time",
-            "split",
-            "hour_sin",
-            "BA_SE_wind_tp_pca",
-            "CE_solar_ssr_pca_0",
-            "CE_solar_ssr_pca_1",
-        ]
-        assert parquet_partition["split"].eq(partition).all()
+        assert "split" not in result.coords
 
     parquet = pd.read_parquet(tmp_path / "data_features.parquet")
-    assert parquet.shape == (19, 6)
+    assert parquet.shape == (19, 5)
 
 
 def test_save_date_features_parquet_writes_shared_time_features(tmp_path) -> None:
