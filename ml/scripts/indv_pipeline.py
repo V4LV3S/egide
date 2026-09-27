@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover - caminho usado somente na execução di
 
 TIME_COLUMN = "time"
 PLANT_COLUMN = "nom_usina"
-VALUE_COLUMN = "val_geracaoreferencia"
+VALUE_COLUMN = "val_disponibilidade"
 
 
 def prepare_indv_dataframe(data: pd.DataFrame, source_path: Path) -> pd.DataFrame:

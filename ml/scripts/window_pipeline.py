@@ -11,7 +11,7 @@ import pandas as pd
 
 TIME_COLUMN = "time"
 SPLIT_COLUMN = "split"
-DEFAULT_TARGET_COLUMN = "val_geracaoreferencia"  # Coluna alvo da previsão.
+DEFAULT_TARGET_COLUMN = "val_disponibilidade"  # Coluna alvo da previsão.
 DEFAULT_CALENDAR_COLUMNS = (
     "hour_sin",
     "hour_cos",

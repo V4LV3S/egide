@@ -18,7 +18,7 @@ INPUT_DIRECTORY = ROOT / "ml" / "data" / "training_indiv"  # define a saida dese
 OUTPUT_DIRECTORY = INPUT_DIRECTORY
 LOOKBACK = 24
 HORIZON = 24
-TARGET_COLUMN = 'val_geracaoreferencia'
+TARGET_COLUMN = 'val_disponibilidade'
 OVERWRITE_EXISTING_OUTPUTS = False
 
 
