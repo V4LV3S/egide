@@ -1,0 +1,42 @@
+{
+  "best_configuration": "larger_cnn_lstm",
+  "best_model_config": {
+    "conv_filters": [
+      64,
+      128
+    ],
+    "kernel_size": 3,
+    "lstm_hidden_size": 128,
+    "calendar_hidden_size": 64,
+    "dropout": 0.2
+  },
+  "validation_selection_mean": {
+    "mae": 0.839016592502594,
+    "rmse": 1.2359689831733705,
+    "nrmse_percent": 14.464573465494434,
+    "r2": 0.8569089573755135,
+    "mape_percent": 105.0734977722168,
+    "smape_percent": 53.94381332397461
+  },
+  "final_epochs": 17,
+  "seeds": [
+    1805214274,
+    1798703776,
+    2066915355,
+    1773210922,
+    1874492600,
+    1309290349,
+    165829630,
+    1701472255,
+    1092525676,
+    2086521252
+  ],
+  "test_ensemble": {
+    "mae": 0.696566641330719,
+    "rmse": 1.1911276578903198,
+    "nrmse_percent": 13.730766571184327,
+    "r2": 0.8735647586165394,
+    "mape_percent": 52.289615631103516,
+    "smape_percent": 27.451143264770508
+  }
+}

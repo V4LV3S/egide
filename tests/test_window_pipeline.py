@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from ml.scripts.window_pipeline import (
     create_train_validation_test_windows,
@@ -14,7 +15,7 @@ def make_dataframe() -> pd.DataFrame:
         {
             "time": timestamps,
             "split": split,
-            "val_cargammgd": np.arange(150, dtype=float),
+            "val_geracaoreferencia": np.arange(150, dtype=float),
             "t2m_pca_0": np.arange(150, dtype=float) + 1000,
             "hour_sin": np.arange(150, dtype=float) + 2000,
             "hour_cos": np.arange(150, dtype=float) + 3000,
@@ -26,7 +27,7 @@ def test_windows_keep_past_calendar_and_target_aligned() -> None:
     data = make_dataframe()
     result = create_train_validation_test_windows(
         data,
-        past_columns=["val_cargammgd", "t2m_pca_0"],
+        past_columns=["val_geracaoreferencia", "t2m_pca_0"],
         calendar_columns=["hour_sin", "hour_cos"],
     )
     x_past_train, x_calendar_train, y_train = result[:3]
@@ -43,7 +44,7 @@ def test_windows_never_cross_split_boundaries() -> None:
     data = make_dataframe()
     result = create_train_validation_test_windows(
         data,
-        past_columns=["val_cargammgd", "t2m_pca_0"],
+        past_columns=["val_geracaoreferencia", "t2m_pca_0"],
         calendar_columns=["hour_sin", "hour_cos"],
     )
 
@@ -56,7 +57,7 @@ def test_windows_skip_ranges_with_missing_hours() -> None:
     data = make_dataframe().drop(index=30).reset_index(drop=True)
     result = create_train_validation_test_windows(
         data,
-        past_columns=["val_cargammgd", "t2m_pca_0"],
+        past_columns=["val_geracaoreferencia", "t2m_pca_0"],
         calendar_columns=["hour_sin", "hour_cos"],
     )
 
@@ -68,4 +69,25 @@ def test_windows_skip_ranges_with_missing_hours() -> None:
 def test_default_past_columns_selects_target_and_pcas() -> None:
     data = make_dataframe()
 
-    assert default_past_columns(data) == ["val_cargammgd", "t2m_pca_0"]
+    assert default_past_columns(data) == ["val_geracaoreferencia", "t2m_pca_0"]
+
+
+def test_default_past_columns_warns_and_selects_only_target_without_pca() -> None:
+    data = make_dataframe().drop(columns="t2m_pca_0")
+
+    with pytest.warns(UserWarning, match="Nenhuma componente PCA"):
+        columns = default_past_columns(data)
+
+    assert columns == ["val_geracaoreferencia"]
+
+
+def test_default_past_columns_selects_grid_features_without_pca() -> None:
+    data = make_dataframe().drop(columns="t2m_pca_0")
+    data["t2m_0"] = np.arange(len(data), dtype=float)
+    data["t2m_1"] = np.arange(len(data), dtype=float)
+
+    assert default_past_columns(data) == [
+        "val_geracaoreferencia",
+        "t2m_0",
+        "t2m_1",
+    ]

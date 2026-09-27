@@ -1,6 +1,7 @@
 """Criação de janelas temporais sem vazamento para previsão multi-horizonte."""
 from __future__ import annotations
 
+import warnings
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -10,7 +11,7 @@ import pandas as pd
 
 TIME_COLUMN = "time"
 SPLIT_COLUMN = "split"
-DEFAULT_TARGET_COLUMN = "val_cargammgd"
+DEFAULT_TARGET_COLUMN = "val_geracaoreferencia"  # Coluna alvo da previsão.
 DEFAULT_CALENDAR_COLUMNS = (
     "hour_sin",
     "hour_cos",
@@ -23,6 +24,7 @@ DEFAULT_CALENDAR_COLUMNS = (
 )
 
 SPLIT_NAMES = ("train", "validation", "test")
+GRID_FEATURE_PREFIXES = ("t2m_", "ssr_", "tcc_", "tp_")
 
 
 def create_split_windows(
@@ -161,14 +163,31 @@ def build_windows_from_parquet(
     )
 
 
-def default_past_columns(data: pd.DataFrame, *, target_column: str = DEFAULT_TARGET_COLUMN) -> list[str]:
-    """Retorna carga e todas as componentes PCA para o Parquet consolidado."""
+def default_past_columns(
+    data: pd.DataFrame,
+    *,
+    target_column: str = DEFAULT_TARGET_COLUMN,
+) -> list[str]:
+    """Retorna alvo e componentes PCA, quando disponíveis."""
     if target_column not in data.columns:
         raise ValueError(f"Coluna alvo ausente: {target_column}.")
-    pca_columns = [column for column in data.columns if "_pca" in column]
-    if not pca_columns:
-        raise ValueError("Nenhuma componente PCA foi encontrada no DataFrame.")
-    return [target_column, *pca_columns]
+    meteorological_columns = [
+        column
+        for column in data.columns
+        if "_pca" in column
+        or (
+            column.startswith(GRID_FEATURE_PREFIXES)
+            and column.rsplit("_", maxsplit=1)[-1].isdigit()
+        )
+    ]
+    if not meteorological_columns:
+        warnings.warn(
+            "Nenhuma componente PCA ou feature de grade encontrada; janelas "
+            "usarão somente a coluna alvo.",
+            UserWarning,
+            stacklevel=2,
+        )
+    return [target_column, *meteorological_columns]
 
 
 def _validate_window_configuration(

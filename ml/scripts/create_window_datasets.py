@@ -6,18 +6,19 @@ from pathlib import Path
 import numpy as np
 
 try:  # Permite importar nos testes e executar diretamente pela IDE.
-    from .window_pipeline import build_windows_from_parquet
+    from .window_pipeline import DEFAULT_TARGET_COLUMN, build_windows_from_parquet
 except ImportError:  # pragma: no cover - caminho usado somente na execução direta.
-    from window_pipeline import build_windows_from_parquet
+    from window_pipeline import DEFAULT_TARGET_COLUMN, build_windows_from_parquet
 
 
 ROOT = Path(__file__).resolve().parents[2]
 
 # CONFIGURAÇÃO EDITÁVEL PARA EXECUÇÃO DIRETA PELA IDE.
-INPUT_DIRECTORY = ROOT / "ml" / "data" / "training"
+INPUT_DIRECTORY = ROOT / "ml" / "data" / "training_indiv"  # define a saida desejada
 OUTPUT_DIRECTORY = INPUT_DIRECTORY
 LOOKBACK = 24
 HORIZON = 24
+TARGET_COLUMN = 'val_geracaoreferencia'
 OVERWRITE_EXISTING_OUTPUTS = False
 
 
@@ -27,6 +28,7 @@ def create_window_files(
     *,
     lookback: int = LOOKBACK,
     horizon: int = HORIZON,
+    target_column: str = TARGET_COLUMN,
     overwrite_existing_outputs: bool = False,
 ) -> list[Path]:
     """Cria um ``.npz`` comprimido de janelas para cada Parquet de entrada."""
@@ -58,6 +60,7 @@ def create_window_files(
             input_path,
             lookback=lookback,
             horizon=horizon,
+            target_column=target_column,
         )
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -85,6 +88,7 @@ def main() -> list[Path]:
         OUTPUT_DIRECTORY,
         lookback=LOOKBACK,
         horizon=HORIZON,
+        target_column=TARGET_COLUMN,
         overwrite_existing_outputs=OVERWRITE_EXISTING_OUTPUTS,
     )
 

@@ -17,8 +17,8 @@ from torch.utils.data import DataLoader, Dataset
 ROOT = Path(__file__).resolve().parents[2]
 
 # CONFIGURAÇÃO EDITÁVEL PARA EXECUÇÃO DIRETA PELA IDE.
-INPUT_DIRECTORY = ROOT / "ml" / "data" / "training"
-OUTPUT_DIRECTORY = ROOT / "ml" / "models" / "cnn_lstm"
+INPUT_DIRECTORY = ROOT / "ml" / "data" / "training_mmgd"
+OUTPUT_DIRECTORY = ROOT / "ml" / "models" / "cnn_lstm_mmgd"
 WINDOW_FILE_SUFFIX = "_ml_input_windows_24h.npz"
 
 # None processa todos os datasets encontrados. Exemplo: ("BA_SE", "CE").

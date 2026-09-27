@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from ml.scripts.create_window_datasets import create_window_files
 
@@ -11,7 +12,7 @@ def write_training_parquet(path) -> None:
         {
             "time": timestamps,
             "split": np.repeat(["train", "validation", "test"], 50),
-            "val_cargammgd": np.arange(150, dtype=float),
+            "val_geracaoreferencia": np.arange(150, dtype=float),
             "t2m_pca_0": np.arange(150, dtype=float),
             "hour_sin": np.arange(150, dtype=float),
             "hour_cos": np.arange(150, dtype=float),
@@ -61,3 +62,42 @@ def test_create_window_files_does_not_overwrite_outputs(tmp_path) -> None:
     create_window_files(input_directory, output_directory)
 
     assert create_window_files(input_directory, output_directory) == []
+
+
+def test_create_window_files_without_pca_uses_only_target(tmp_path) -> None:
+    input_directory = tmp_path / "training"
+    input_directory.mkdir()
+    input_path = input_directory / "usina_ml_input.parquet"
+    write_training_parquet(input_path)
+    frame = pd.read_parquet(input_path).drop(columns="t2m_pca_0")
+    frame.to_parquet(input_path, index=False)
+
+    with pytest.warns(UserWarning, match="Nenhuma componente PCA"):
+        output_paths = create_window_files(input_directory, tmp_path / "windows")
+
+    with np.load(output_paths[0]) as output:
+        assert output["X_past_train"].shape == (3, 24, 1)
+
+
+def test_create_window_files_accepts_custom_target_column(tmp_path) -> None:
+    input_directory = tmp_path / "training"
+    input_directory.mkdir()
+    input_path = input_directory / "usina_ml_input.parquet"
+    write_training_parquet(input_path)
+    frame = pd.read_parquet(input_path)
+    frame["target_alternativo"] = np.arange(150, dtype=float) + 500
+    frame.to_parquet(input_path, index=False)
+
+    output_paths = create_window_files(
+        input_directory,
+        tmp_path / "windows",
+        target_column="target_alternativo",
+    )
+
+    with np.load(output_paths[0]) as output:
+        np.testing.assert_array_equal(
+            output["X_past_train"][0, :, 0], np.arange(500, 524)
+        )
+        np.testing.assert_array_equal(
+            output["y_train"][0], np.arange(524, 548)
+        )
