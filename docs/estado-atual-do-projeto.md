@@ -1,5 +1,8 @@
 # Estado atual do projeto e pipeline de dados
 
+> **Documento histórico.** Para a estrutura e os comandos atuais, consulte o
+> [README principal](../README.md) e o [README de ML](../ml/README.md).
+
 > Retrato do repositório em 20 de setembro de 2026. As quantidades, tamanhos e
 > intervalos abaixo foram lidos dos arquivos locais; não são apenas a intenção
 > descrita nos notebooks.

@@ -1,114 +1,94 @@
-# Egide
+# Égide
 
-Projeto para coleta, processamento e visualizacao de dados energeticos e
-meteorologicos.
+Pipeline de dados e Machine Learning para previsão de geração renovável e
+volume de constrained-off no sistema elétrico brasileiro.
 
-## Estrutura
+## Demo
+
+- **Link da demo:** (se houver, ex: Vercel, Netlify, etc.)
+
+## Estado atual
+
+O projeto já possui:
+
+- aquisição e tratamento de dados ONS, ERA5/ERA5-Land e SIGA/ANEEL;
+- features meteorológicas regionais e por usina;
+- datasets temporais de treino, validação e teste;
+- modelos CNN-LSTM para previsão de 24 horas;
+- ensembles para MMGD por região geoelétrica e geração por usina;
+- exportação das previsões na escala original para ferramentas externas.
+
+## Fluxo principal
 
 ```text
-egide/
-|-- data/
-|   |-- raw/             # downloads locais, ignorados pelo Git
-|   `-- processed/       # dados tratados em Parquet
-|-- docs/hackathon/      # documentos e material de referencia
-|-- notebooks/           # exploracao, processamento e visualizacao
-|   `-- sandbox/         # experimentos temporarios
-|-- ml/                  # notebooks, scripts e artefatos de Machine Learning
-|   |-- notebooks/       # Ridge, MLP, CNN+LSTM e XGBoost
-|   `-- scripts/         # preparacao, treino e persistencia reutilizaveis
-|-- scripts/             # rotinas executaveis de coleta
-|-- main.py
-|-- pyproject.toml
-`-- uv.lock
+fontes ONS / CDS / ANEEL
+        -> scripts/
+        -> data/processed/
+        -> ml/scripts/
+        -> ml/data/
+        -> ml/models/
+        -> cnn_lstm_plot_results/
 ```
 
-Execute os comandos a partir da raiz do repositorio para que os caminhos de
-dados sejam resolvidos corretamente.
+## Como rodar o projeto
 
-## Instalacao
+Requisitos: Python 3.14 ou superior e [uv](https://docs.astral.sh/uv/).
 
-```sh
-git clone https://github.com/YOUR-USERNAME/egide.git
+```bash
+git clone <url-do-repositorio>
 cd egide
 uv sync
+uv run pytest
 ```
 
-## Download ERA5
+Execute os comandos a partir da raiz. As entradas, saídas e seleções de datasets
+são configuradas no início de cada script.
 
-O script `scripts/download_era5.py` baixa medias mensais do ERA5-Land pela API
-do Copernicus CDS. Antes de executa-lo, crie uma conta no CDS, aceite os termos
-do conjunto de dados e configure as credenciais em `~/.cdsapirc`.
+## Operações CNN-LSTM
 
-As variaveis, o periodo e a area geografica podem ser alterados no inicio do
-script. Para executar:
+```bash
+# Treinar
+uv run python ml/scripts/cnn_lstm_training_mmgd.py
+uv run python ml/scripts/cnn_lstm_training_indv.py
 
-```sh
-uv run python scripts/download_era5.py
+# Reutilizar checkpoints e exportar o teste
+uv run python ml/scripts/cnn_lstm_export_mmgd.py
+uv run python ml/scripts/cnn_lstm_export_indv.py
+
+# Reunir JSONs para plots e limitar negativos a zero
+uv run python ml/scripts/copy_cnn_lstm_plot_results.py
 ```
 
-O arquivo resultante e salvo em `data/raw/era5/` e nao e versionado.
+## Próximas melhorias
 
-## Dados ONS
+- investigar variáveis meteorológicas mais representativas para complementar a
+  previsão das fontes intermitentes;
+- organizar melhor as pastas por processo;
+- aprimorar o fluxo e o tratamento dos dados, buscando o máximo desempenho
+  computacional e menor consumo de memória;
+- automatizar a seleção de variáveis, hiperparâmetros e arquiteturas dos modelos;
+- adicionar métricas por horizonte de previsão, região e usina para facilitar
+  a identificação de cenários com maior erro;
+- avaliar previsões probabilísticas e intervalos de confiança, além das
+  previsões pontuais;
+- fortalecer a validação dos dados, a rastreabilidade dos experimentos e o
+  monitoramento de degradação dos modelos;
+- comparar a CNN-LSTM com modelos de referência e arquiteturas temporais mais
+  recentes.
 
-O notebook `notebooks/download_carga.ipynb` coleta dados de carga verificada e
-programada da API do ONS. Os resultados sao gravados em
-`data/processed/carga/`.
+## Pastas
 
-Os notebooks `notebooks/visual_load.ipynb` e `notebooks/visual_coff.ipynb`
-concentram as analises e visualizacoes dos dados processados.
+| Pasta | Resumo |
+| --- | --- |
+| [`data/`](data/README.md) | Fontes e dados processados. |
+| [`scripts/`](scripts/README.md) | Aquisição e transformações gerais. |
+| [`ml/`](ml/README.md) | Pipeline de features, treino, modelos e inferência. |
+| [`cnn_lstm_plot_results/`](cnn_lstm_plot_results/README.md) | JSONs finais para plotagem. |
+| [`notebooks/`](notebooks/README.md) | Exploração e visualização. |
+| [`tests/`](tests/README.md) | Testes automatizados. |
+| [`docs/`](docs/README.md) | Referências e documentação conceitual. |
+| [`curtailment-model/`](curtailment-model/README.md) | Pipeline experimental de curtailment eólico. |
 
-## Machine Learning
+## Licença
 
-Os notebooks em `ml/notebooks/` oferecem esqueletos para regressao temporal,
-regressao + classificacao e classificacao com Ridge/Logistic Regression, MLP,
-CNN+LSTM e XGBoost. Consulte [ml/README.md](ml/README.md) para configuracao,
-paralelismo manual e uso com Parquet ou CSV.
-
-### Features meteorologicas com PCA
-
-O fluxo e dividido em `ml/scripts/pca_pipeline.py`, que concentra as etapas
-reutilizaveis, e `ml/scripts/create_pca_features.py`, que contem a configuracao
-editavel na IDE. Para cada regiao, as variaveis NetCDF configuradas sao
-alinhadas nos instantes em comum e separadas cronologicamente em treino (70%),
-validacao (15%) e teste (15%).
-
-A sequencia evita vazamento de dados:
-
-1. Para cada variavel, valores ausentes sao imputados e o primeiro
-   `StandardScaler` e ajustado apenas no treino; validacao e teste recebem a
-   mesma transformacao.
-2. A PCA de cada variavel e ajustada somente no treino normalizado e projeta
-   treino, validacao e teste.
-3. As componentes de todas as variaveis sao concatenadas para formar
-   `X_train`, `X_validation` e `X_test`.
-4. Um segundo `StandardScaler` e ajustado em `X_train` e transforma as tres
-   matrizes, resultando nas features finais do modelo.
-
-`tp` recebe `log1p` antes dessas etapas; a transformacao e configurada por
-`VARIABLES_WITH_LOG1P`. Edite tambem `PCA_COMPONENTS_BY_VARIABLE`,
-`TRAIN_FRACTION` e `VALIDATION_FRACTION` diretamente em
-`ml/scripts/create_pca_features.py` e execute o arquivo pela IDE.
-
-Cada regiao gera um unico arquivo:
-
-```text
-ml/data/
-`-- meteoro/
-    `-- BA_SE/
-        `-- pca_features.parquet
-```
-
-O Parquet contem `time`, `split` (`train`, `validation` ou `test`) e uma coluna
-por componente PCA, como `t2m_pca_0` e `tp_pca_0`. Ele e a matriz meteorologica
-final, pronta para ser unida aos alvos e demais features no fluxo do modelo.
-
-## Documentacao
-
-Os cadernos do desafio, instrucoes de acesso ao ERA5 e o notebook de referencia
-estao em `docs/hackathon/`. O [estado atual do projeto e o pipeline de
-dados](docs/estado-atual-do-projeto.md) consolidam os dados, transformacoes,
-cobertura e pendencias mapeados no repositorio.
-
-## Licenca
-
-Este projeto e distribuido sob a [licenca MIT](LICENSE).
+Este projeto está sob a licença MIT — veja o arquivo [LICENSE](./LICENSE) para mais detalhes.

@@ -1,0 +1,32 @@
+[
+  {
+    "id_estado":"BA",
+    "nom_estado":"Bahia",
+    "state_idx":0
+  },
+  {
+    "id_estado":"CE",
+    "nom_estado":"Ceará",
+    "state_idx":1
+  },
+  {
+    "id_estado":"PB",
+    "nom_estado":"Paraíba",
+    "state_idx":2
+  },
+  {
+    "id_estado":"PE",
+    "nom_estado":"Pernambuco",
+    "state_idx":3
+  },
+  {
+    "id_estado":"PI",
+    "nom_estado":"Piauí",
+    "state_idx":4
+  },
+  {
+    "id_estado":"RN",
+    "nom_estado":"Rio Grande do Norte",
+    "state_idx":5
+  }
+]

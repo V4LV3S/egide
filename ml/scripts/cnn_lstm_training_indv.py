@@ -13,12 +13,25 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
+try:  # Permite importar nos testes e executar diretamente pela IDE.
+    from .cnn_lstm_results import (
+        fit_original_target_transform,
+        load_split_target_times,
+        write_test_results,
+    )
+except ImportError:  # pragma: no cover - caminho usado na execução direta.
+    from cnn_lstm_results import (
+        fit_original_target_transform,
+        load_split_target_times,
+        write_test_results,
+    )
 
 ROOT = Path(__file__).resolve().parents[2]
 
 # CONFIGURAÇÃO EDITÁVEL PARA EXECUÇÃO DIRETA PELA IDE.
 INPUT_DIRECTORY = ROOT / "ml" / "data" / "training_indiv"
 OUTPUT_DIRECTORY = ROOT / "ml" / "models" / "cnn_lstm_indv"
+ORIGINAL_DATA_DIRECTORY = ROOT / "data" / "processed" / "geracao_indv"
 WINDOW_FILE_SUFFIX = "_ml_input_windows_24h.npz"
 
 # None processa todos os datasets encontrados. Exemplo: ("BA_SE", "CE").
@@ -442,6 +455,16 @@ def train_dataset(
     print(f"\nDataset: {dataset_name}")
     print(f"Entrada: {input_path}")
     windows = load_window_data(input_path)
+    source_parquet_path = input_path.with_name(
+        f"{dataset_name}_ml_input.parquet"
+    )
+    test_target_times = load_split_target_times(
+        source_parquet_path,
+        split="test",
+        lookback=windows["X_past_test"].shape[1],
+        horizon=windows["y_test"].shape[1],
+        expected_sample_count=len(windows["y_test"]),
+    )
     for split in ("train", "val", "test"):
         print(
             split,
@@ -575,6 +598,21 @@ def train_dataset(
         for metric in METRIC_NAMES
         if metric != "best_epoch"
     }
+    original_name = dataset_name.removeprefix("testing_")
+    inverse_transform = fit_original_target_transform(
+        source_parquet_path,
+        ORIGINAL_DATA_DIRECTORY / f"{original_name}.parquet",
+    )
+    test_results_path = dataset_output_directory / "test_results.json"
+    write_test_results(
+        test_results_path,
+        dataset_name=dataset_name,
+        entity_type="usina",
+        target_times=test_target_times,
+        observed_values=inverse_transform.inverse(test_true),
+        predicted_values=inverse_transform.inverse(test_pred),
+        value_scale="original",
+    )
     summary = {
         "best_configuration": best_name,
         "best_model_config": asdict(best_config),
@@ -582,6 +620,7 @@ def train_dataset(
         "final_epochs": final_epochs,
         "seeds": list(SEEDS),
         "test_ensemble": test_metrics,
+        "test_results_file": test_results_path.name,
     }
     with (dataset_output_directory / "best_model_metrics.json").open(
         "w", encoding="utf-8"
@@ -599,6 +638,7 @@ def train_dataset(
             ]
         ).to_string(index=False)
     )
+    print(f"Resultados do teste: {test_results_path}")
     print(f"Saída: {dataset_output_directory}")
     return summary
 
